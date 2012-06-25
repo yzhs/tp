@@ -42,30 +42,30 @@ Inductive TPExp :=
  | TPrec (id : string) (exp : TPExp)
 .
 
-Fixpoint TPisvalue (exp : TPExp) : Prop :=
+Fixpoint TPisvalue (exp : TPExp) : bool :=
  match exp with
- | TPconst _ => True
- | TPabst _ _ => True
+ | TPconst _ => true
+ | TPabst _ _ => true
  | TPapp (TPconst (TPop _)) exp => TPisvalue exp
- | _ => False
+ | _ => false
 end.
 
 (* Small step semantics *)
 (* {{{ *)
 Definition eval op n1 n2 :=
   match op,  n1, n2 with
-    | TPplus,     TPint n, TPint n' => TPint (n + n')
-    | TPminus,    TPint n, TPint n' => TPint (n - n')
-    | TPmult,     TPint n, TPint n' => TPint (n * n')
-    | TPdiv,      TPint n, TPint n' => TPint (n / n')
-    | TPmod,      TPint n, TPint n' => TPint (n mod n')
-    | TPless,     TPint n, TPint n' => TPbool (Zlt_bool n n')
-    | TPlesseq,   TPint n, TPint n' => TPbool (Zle_bool n n')
-    | TPgreater,  TPint n, TPint n' => TPbool (Zgt_bool n n')
-    | TPgreatereq,TPint n, TPint n' => TPbool (Zge_bool n n')
-    | TPeq,       TPint n, TPint n' => TPbool (Zeq_bool n n')
-    | TPneq,      TPint n, TPint n' => TPbool (Zneq_bool n n')
-    | _, _, _ => TPhang
+    | TPplus,     TPconst (TPint n), TPconst (TPint n') => TPconst (TPint (n + n'))
+    | TPminus,    TPconst (TPint n), TPconst (TPint n') => TPconst (TPint (n - n'))
+    | TPmult,     TPconst (TPint n), TPconst (TPint n') => TPconst (TPint (n * n'))
+    | TPdiv,      TPconst (TPint n), TPconst (TPint n') => TPconst (TPint (n / n'))
+    | TPmod,      TPconst (TPint n), TPconst (TPint n') => TPconst (TPint (n mod n'))
+    | TPless,     TPconst (TPint n), TPconst (TPint n') => TPconst (TPbool (Zlt_bool n n'))
+    | TPlesseq,   TPconst (TPint n), TPconst (TPint n') => TPconst (TPbool (Zle_bool n n'))
+    | TPgreater,  TPconst (TPint n), TPconst (TPint n') => TPconst (TPbool (Zgt_bool n n'))
+    | TPgreatereq,TPconst (TPint n), TPconst (TPint n') => TPconst (TPbool (Zge_bool n n'))
+    | TPeq,       TPconst (TPint n), TPconst (TPint n') => TPconst (TPbool (Zeq_bool n n'))
+    | TPneq,      TPconst (TPint n), TPconst (TPint n') => TPconst (TPbool (Zneq_bool n n'))
+    | _, _, _ => TPconst TPhang
   end.
 
 SearchPattern (list _ -> bool).
@@ -150,8 +150,32 @@ Fixpoint subst e e' id :=
     | TPrec id' e => if string_eq id' id then e else TPrec id' (subst e e' id)
   end.
   
-Definition small_step exp :=
+Fixpoint small_step exp :=
   match exp with
-    | TPapp (TPabst id exp1) exp2 => 
-    | TPapp (TPapp (TPconst (TPop op)) exp1) exp2 =>  eval op exp1 exp2  (* OP *)
+    | TPapp (TPabst id e1) e2 =>
+      if TPisvalue e2
+        then subst e1 e2 id                        (* BETA-V *)
+        else TPapp (small_step e1) e2              (* APP-LEFT *)
+    | TPapp e1 exp2 =>
+      match e1 with
+        | TPapp (TPconst (TPop op)) exp1 =>
+          if TPisvalue exp1 then
+            if TPisvalue exp2 then
+              eval op exp1 exp2                    (* OP *)
+            else TPapp e1 (small_step exp2)        (* APP-RIGHT *)
+          else TPapp (small_step e1) exp2          (* APP-LEFT *)
+        | _ => if TPisvalue exp2
+                 then TPapp (small_step e1) exp2
+                 else TPapp e1 (small_step exp2)
+       end
+    | TPif (TPconst (TPbool true)) e2 e3 => e2     (* COND-TRUE *)
+    | TPif (TPconst (TPbool false)) e2 e3 => e3    (* COND-FALSE *)
+    | TPif e1 e2 e3 => TPif (small_step e1) e2 e3  (* COND-EVAL *)
+    | TPlet id e1 e2 =>
+      if TPisvalue e1 then
+        subst e2 e1 id                             (* LET-EXEC *)
+      else TPlet id (small_step e1) e2             (* LET-EVAL *)
+    | TPrec id e => subst e (TPrec id e) id        (* UNFOLD *)
+    | _ => TPconst TPhang
+  end.
 
