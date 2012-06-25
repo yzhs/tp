@@ -99,6 +99,7 @@ Fixpoint TPconst_eq c1 c2 :=
 (* }}} *)
 
 Definition string_eq s1 s2 := andb (prefix s1 s2) (prefix s2 s1).
+Definition string_neq s1 s2 := negb (string_eq s1 s2).
 
 Fixpoint TPExp_eq exp1 exp2 :=
   match exp1, exp2 with
@@ -112,16 +113,43 @@ Fixpoint TPExp_eq exp1 exp2 :=
     | _, _ => false
   end.
 
+(* TODO: rewrite using sets (ListSet?) *)
 Fixpoint free exp :=
   match exp with
     | TPconst _ => nil
     | TPid id => id :: nil
     | TPapp exp1 exp2 => app (free exp1) (free exp2)
     | TPif exp1 exp2 exp3 => app (free exp1) (app (free exp2) (free exp3))
-    | TPabst id exp => filter (Lfree 
+    | TPabst id exp => filter (string_neq id) (free exp)
+    | TPlet id e1 e2 => app (filter (string_neq id) (free e2)) (free e1)
+    | TPrec id exp => filter (string_neq id) (free exp)
+  end.
 
-Fixpoint subst (exp : TPexp) id
+(*
+Fixpoint new_id free_ids id :=
+  
 
+Fixpoint subst free_ids e e' id :=
+  match e with
+    | TPconst c => c
+    | TPid id' => if string_eq id' id then e' else id'
+    | TPabst id' e => if string_eq id' id then e else
+      let id'' := new_id free_ids id' in TPabst id'' (subst (id'' :: free_ids) (subst free_ids e' (TPid id'') id) e' id)
+    | _ => TPconst TPunit
+  end.
+*)
+
+Fixpoint subst e e' id :=
+  match e with
+    | TPconst c => e
+    | TPid id' => if string_eq id' id then e' else TPid id'
+    | TPif e1 e2 e3 => TPif (subst e1 e' id) (subst e2 e' id) (subst e3 e' id)
+    | TPapp e1 e2 => TPapp (subst e1 e' id) (subst e2 e' id)
+    | TPabst id' e => if string_eq id' id then e else TPabst id' (subst e e' id)
+    | TPlet id' e1 e2 => TPlet id' (subst e1 e' id) (if string_eq id id' then e2 else subst e2 e' id)
+    | TPrec id' e => if string_eq id' id then e else TPrec id' (subst e e' id)
+  end.
+  
 Definition small_step exp :=
   match exp with
     | TPapp (TPabst id exp1) exp2 => 
