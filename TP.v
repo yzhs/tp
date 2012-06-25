@@ -179,3 +179,19 @@ Fixpoint small_step exp :=
     | _ => TPconst TPhang
   end.
 
+
+Inductive TPtype :=
+  | TP_unit
+  | TP_bool
+  | TP_int
+  | TP_fun (t1 t2 : TPtype).
+
+Inductive TPtype_equality :=
+  | TP_eq (t1 t2 : TPtype).
+
+Inductive unify types :=
+  | Triv : forall t lst, ((TP_eq t t) :: lst) -> unify lst.
+(*
+  | Empty nil
+  | Arrow ((TP_eq (TP_fun t1 t2) (TP_fun t1' t2')) :: lst) => unify ((TP_eq t1 t1') :: (TP_eq t2 t2') :: lst).*)
+    
