@@ -243,7 +243,7 @@ Proof.
         reflexivity. exact H.
         (* Case: false *)
         contradict H. discriminate.
-    (* <= *)
+   (* <= *)
     rewrite H. clear H. clear s1.
     induction s2; simpl.
       (* Base case *)

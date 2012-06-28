@@ -83,9 +83,76 @@ Fixpoint small_step exp :=
         subst e2 e1 id                             (* LET-EXEC *)
         else TPlet id (small_step e1) e2           (* LET-EVAL *)
     | TPrec id e => subst e (TPrec id e) id        (* UNFOLD *)
-    | _ => if TPisvalue exp then exp else TPconst TPhang
-  end.
+ (* | _ => if TPisvalue exp then exp else TPconst TPhang *)
+    | _ => exp
+ end.
 
 (*Compute small_step (small_step (TPapp (TPabst "x" (TPapp (TPapp (TPconst( TPop TPplus)) (TPid "x")) (TPconst (TPint 1)))) (TPconst (TPint 2)))).*)
+
+Theorem op_rule_implemented: forall exp op exp1 exp2, exp = (TPapp (TPapp (TPconst(TPop op)) exp1) exp2) /\ andb (TPisvalue exp1) (TPisvalue exp2) = true -> small_step exp = eval op exp1 exp2.
+Proof.
+  intros exp op exp1 exp2 H.
+  destruct H as [H H']. apply andb_prop in H'. destruct H' as [H' H''].
+  rewrite H.
+  simpl. rewrite H'. rewrite H''.
+  reflexivity.
+Qed.
+
+Theorem beta_v_rule_implemented: forall exp exp' id exp'', (exp = TPapp (TPabst id exp') exp'' /\ TPisvalue exp'' = true) -> small_step exp = subst exp' exp'' id.
+Proof.
+  intros exp exp' id exp'' H. destruct H as [H H'].
+  apply TPisvalue_consist in H'.
+  destruct H' as [[x H0] | [[s [x H0]] | [x [ x0 [H0 H1]]]]];
+  rewrite H0; rewrite H0 in H; clear H0; clear exp''; rewrite H; clear H; simpl.
+    reflexivity.
+    reflexivity.
+    rewrite H1. reflexivity.
+Qed.
+
+Theorem app_left_rule_implemented: forall exp1 exp2, small_step exp1 = exp2 -> forall exp3, small_step (TPapp exp1 exp3) = (TPapp exp2 exp3).
+Proof.
+  (* TODO *)
+Admitted.
+
+Theorem app_right_rule_implemented: forall exp1 exp2, small_step exp1 = exp2 -> forall v, TPisvalue v = true -> small_step (TPapp v exp1) = (TPapp v exp2).
+Proof.
+  (* TODO *)
+Admitted.
+
+Theorem cond_eval_rule_implemented: forall exp exp', (small_step exp = exp' /\ exp <> (TPconst (TPbool true)) /\ exp <> (TPconst (TPbool false))) -> forall exp1 exp2, small_step (TPif exp exp1 exp2) = TPif exp' exp1 exp2.
+Proof.
+  intros exp exp' H exp1 exp2.
+  destruct H as [H H'].
+  destruct H' as [Hnot_true Hnot_false].
+
+  rewrite <- H. clear H. clear exp'.
+  induction exp; simpl; try reflexivity.
+    (* Case: TPconst *)
+    destruct c; compute; try reflexivity.
+      (* Case: TPbool *)
+      destruct b.
+      contradict Hnot_true. reflexivity.
+      contradict Hnot_false. reflexivity.
+Qed.
+
+Theorem cond_true_rule_implemented: forall exp1 exp2, small_step (TPif (TPconst (TPbool true)) exp1 exp2) = exp1.
+Proof.
+  intros exp1 exp2. simpl. reflexivity.
+Qed.
+
+Theorem cond_false_rule_implemented: forall exp1 exp2, small_step (TPif (TPconst (TPbool false)) exp1 exp2) = exp2.
+Proof.
+  intros exp1 exp2. simpl. reflexivity.
+Qed.
+
+Theorem let_eval_rule_implemented: forall exp exp', small_step exp = exp' -> forall id exp1, small_step (TPlet id exp exp1) = TPlet id exp' exp1.
+Proof.
+  (* TODO *)
+Admitted.
+
+Theorem let_exec_rule_implemented: forall id v, TPisvalue v = true -> forall exp, small_step (TPlet id v exp) = subst exp v id.
+Proof.
+  (* TODO *)
+Admitted.
 
 End TPSmallSteps.
