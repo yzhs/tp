@@ -1,7 +1,7 @@
 Module TPSmallSteps.
 
 Load TPSyntax.
-Export TPSyntax.
+Import TPSyntax.
 
 Open Scope Z_scope.
 

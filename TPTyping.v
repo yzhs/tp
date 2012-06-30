@@ -3,6 +3,8 @@ Module TPTyping.
 Load TPSmallSteps.
 Import TPSmallSteps.
 
+Require Import List.
+
 Inductive TPType :=
 | TPTypeUnit
 | TPTypeBool
@@ -11,12 +13,12 @@ Inductive TPType :=
 | TPTypeVar (id : string)
 | TPTypeError.
 
-Inductive TPTypeEquation :=
-| TPTypeEq (t1 t2 : TPType).
+(* Shorthands *)
 
-Inductive Subst' :=
-| Subst (a b : TPType)
-| Error.
+Definition TPTypeIntToInt := TPTypeFun TPTypeInt TPTypeInt.
+Definition TPTypeIntToBool := TPTypeFun TPTypeInt TPTypeBool.
+Definition TPTypeIntToIntToInt := TPTypeFun TPTypeInt TPTypeIntToInt.
+Definition TPTypeIntToIntToBool := TPTypeFun TPTypeInt TPTypeIntToBool.
 
 Fixpoint TPType_eq t1 t2 :=
   match t1, t2 with
@@ -35,80 +37,116 @@ Proof.
   (* => *)
     generalize dependent t2.
     induction t1; destruct t2; intros H; try (discriminate || reflexivity).
-    (* Case: TP_fun *)
+    (* Case: TPTypeFun *)
     simpl in H. apply andb_prop in H. destruct H as [H H'].
     rewrite IHt1_1 with (t2:=t2_1).
     rewrite IHt1_2 with (t2:=t2_2).
     now reflexivity. now exact H'. now exact H.
-    (* Case: TP_var *)
+    (* Case: TPTypeVar *)
     simpl in H. apply string_eq_consist in H. rewrite H.
     now reflexivity.
   (* <= *)
     rewrite H. clear H. clear t1.
     induction t2; simpl; try reflexivity.
-    (* Case: TP_fun *)
+    (* Case: TPTypeFun *)
     rewrite IHt2_1. rewrite IHt2_2. simpl. now reflexivity.
-    (* Case: TP_var *)
+    (* Case: TPTypeVar *)
     apply string_eq_reflex.
 Qed.
 
-Fixpoint TPTypeComplexity t :=
-  match t with
-    | TPTypeFun t1 t2 => plus (plus (TPTypeComplexity t1) (TPTypeComplexity t2)) (1%nat)
-    | _ => 1%nat
-  end.
+Definition TPTypeEnv := list (string * TPType).
 
-Definition TPTypeEquationComplexity t :=
-  match t with
-    | TPTypeEq t1 t2 => plus (TPTypeComplexity t1) (TPTypeComplexity t2)
-  end.
+Fixpoint change_env id tau env: TPTypeEnv := match env with
+| nil => (id, tau)::nil
+| (id', tau')::env' => if string_eq id id' then (id, tau)::env' else (id', tau')::(change_env id tau env')
+end.
 
-Definition TPTypeEquationListComplexity eqlist := fold_left plus (map TPTypeEquationComplexity eqlist) 0%nat.
-
-Require Import Recdef.
-
-Function unify (types : list TPTypeEquation) {measure TPTypeEquationListComplexity} : list Subst' :=
-  match types with
-    | nil => nil
-    | ((TPTypeEq (TPTypeFun t1 t2) (TPTypeFun t1' t2')) :: lst) => unify ((TPTypeEq t1 t1') :: (TPTypeEq t2 t2') :: lst)
-    | (TPTypeEq (TPTypeVar id) t) :: lst => (Subst t (TPTypeVar id)) :: unify lst
-    | (TPTypeEq t (TPTypeVar id)) :: lst => (Subst t (TPTypeVar id)) :: unify lst
-    | (TPTypeEq t1 t2) :: lst => if TPType_eq t1 t2 then unify lst else Error :: nil
-  end.
+Lemma change_env_consist: forall env id tau, In (id, tau) (change_env id tau env).
 Proof.
-  intros.
-  induction lst.
-  now intuition.
-  (*unfold complexity.*)
-Admitted.
+  intros env id tau.
+  induction env; simpl.
+    left. reflexivity.
+    destruct a as (id', tau'). case_eq (string_eq id id'); intros H; simpl.
+      left. reflexivity.
+      right. exact IHenv.
+Qed.
 
-Inductive TPTypingJudgement :=
-  | TPTypingJudge (env : list (string * TPType)) (exp : TPExp) (type : TPType).
+Lemma change_env_small: forall env id tau, change_env id tau env = (id, tau) :: nil -> env = nil \/ (exists tau'', env = (id, tau'') :: nil).
+Proof.
+  intros env id tau H.
+  induction env.
+    left. reflexivity.
+    right. destruct a as (id', tau'). case_eq (string_eq id id'); intros H'.
+      simpl in H. rewrite H' in H. inversion H. exists tau'. apply string_eq_consist in H'. rewrite H'. reflexivity.
+      simpl in H. rewrite H' in H. inversion H. symmetry in H1. apply string_eq_consist in H1. rewrite H1 in H'. contradict H'. discriminate.
+Qed.
+
+Parameter TPHasType: TPTypeEnv -> TPExp -> TPType -> Prop.
 
 Definition TPTypeOfOp op :=
   match op with
-    | TPOperatorPlus | TPOperatorMinus | TPOperatorMult | TPOperatorDiv | TPOperatorMod => TPTypeFun TPTypeInt (TPTypeFun TPTypeInt TPTypeInt)
-    | _ => TPTypeFun TPTypeInt (TPTypeFun TPTypeInt TPTypeBool)
+    | TPOperatorPlus
+    | TPOperatorMinus
+    | TPOperatorMult
+    | TPOperatorDiv
+    | TPOperatorMod => TPTypeIntToIntToInt
+    | _ => TPTypeIntToIntToBool
   end.
 
-Fixpoint typing_rules env exp {struct exp} :=
-  match exp with
-    | TPExpConst TPConstantUnit => TPTypeUnit
-    | TPExpConst (TPConstantBool _) => TPTypeBool
-    | TPExpConst (TPConstantInt _) => TPTypeInt
-    | TPExpConst (TPConstantOp op) => TPTypeOfOp op
-    | TPExpConst TPConstantExn => TPTypeError
-    | TPExpConst TPConstantHang => TPTypeError
-    | TPExpId id => match find (fun a => string_eq id (fst a)) env with | Some (a,b) => b | None => TPTypeVar "" end
-    | TPExpApp e1 e2 =>
-      match typing_rules env e1 with
-        | TPTypeFun t1 t2 => if TPType_eq (typing_rules env e2) t1 then t2 else TPTypeError
-        | _ => TPTypeError
-      end
-    | TPExpAbstr id e => typing_rules env e
-    | TPExpIf e1 e2 e3 => if negb (TPType_eq (typing_rules env e1) TPTypeBool) then TPTypeError else if negb (TPType_eq (typing_rules env e2) (typing_rules env e3)) then TPTypeError else typing_rules env e2
-    | TPExpLet id e1 e2 => typing_rules ((id, typing_rules env e1) :: env) e2
-    | TPExpRec id e => typing_rules env e
-  end.
+Definition TPTypeOfConst (c: TPConstant) := match c with
+ | TPConstantUnit => TPTypeUnit
+ | TPConstantBool _ => TPTypeBool
+ | TPConstantInt _ => TPTypeInt
+ | TPConstantOp op => TPTypeOfOp op
+ | TPConstantExn => TPTypeError
+ | TPConstantHang => TPTypeError
+end.
+
+Axiom typerule_const: forall env, forall c, forall tau, 
+                      tau = (TPTypeOfConst c) -> 
+                        TPHasType env (TPConst c) tau.
+Axiom typerule_id: forall env, forall id, forall tau, 
+                   In (id, tau) env -> 
+                     TPHasType env (TPId id) tau.
+Axiom typerule_app: forall env, forall exp1 exp2, forall tau tau', 
+                    (TPHasType env exp1 (TPTypeFun tau tau')) -> 
+                    (TPHasType env exp2 tau) -> 
+                      (TPHasType env (TPApp exp1 exp2) tau').
+Axiom typerule_cond: forall env, forall exp0 exp1 exp2, forall tau,
+                     (TPHasType env exp0 TPTypeBool) ->
+                     (TPHasType env exp1 tau) ->
+                     (TPHasType env exp2 tau) ->
+                       (TPHasType env (TPIf exp0 exp1 exp2) tau).
+Axiom typerule_abstr: forall env env', forall exp, forall id, forall tau tau',
+                      env' = change_env id tau env ->
+                      (TPHasType env' exp tau') ->
+                      (TPHasType env (TPAbstr id exp) (TPTypeFun tau tau')).
+Axiom typerule_rec: forall env env', forall exp, forall id, forall tau,
+                    env' = change_env id tau env ->
+                    (TPHasType env' exp tau) ->
+                    (TPHasType env (TPRec id exp) tau).
+Axiom typerule_let: forall env env', forall exp1 exp2, forall id, forall tau1 tau2,
+                    env' = change_env id tau1 env ->
+                    (TPHasType env exp1 tau1) ->
+                    (TPHasType env' exp2 tau2) ->
+                    (TPHasType env (TPLet id exp1 exp2) tau2).
+
+Example test1: forall env, TPHasType env (TPApp TPPlus (TPInt 1)) TPTypeIntToInt.
+Proof.
+  intros.
+  apply typerule_app with (tau:=TPTypeInt).
+    apply typerule_const. simpl. reflexivity.
+    apply typerule_const. simpl. reflexivity.
+Qed.
+
+Example test2: forall env, TPHasType env (TPApp (TPApp TPPlus (TPInt 1)) (TPInt 1)) TPTypeInt.
+Proof.
+  intros.
+  apply typerule_app with (tau:=TPTypeInt).
+  apply typerule_app with (tau:=TPTypeInt).
+    apply typerule_const. simpl. reflexivity.
+    apply typerule_const. simpl. reflexivity.
+    apply typerule_const. simpl. reflexivity.
+Qed.
 
 End TPTyping.
