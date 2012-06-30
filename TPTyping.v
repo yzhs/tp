@@ -3,33 +3,33 @@ Module TPTyping.
 Load TPSmallSteps.
 Import TPSmallSteps.
 
-Inductive TPtype :=
-| TP_unit
-| TP_bool
-| TP_int
-| TP_fun (t1 t2 : TPtype)
-| TP_var (id : string)
-| TP_error.
+Inductive TPType :=
+| TPTypeUnit
+| TPTypeBool
+| TPTypeInt
+| TPTypeFun (t1 t2 : TPType)
+| TPTypeVar (id : string)
+| TPTypeError.
 
-Inductive TPtype_equality :=
-| TP_eq (t1 t2 : TPtype).
+Inductive TPTypeEquation :=
+| TPTypeEq (t1 t2 : TPType).
 
 Inductive Subst' :=
-| Subst (a b : TPtype)
+| Subst (a b : TPType)
 | Error.
 
-Fixpoint type_eq t1 t2 :=
+Fixpoint TPType_eq t1 t2 :=
   match t1, t2 with
-    | TP_unit, TP_unit => true
-    | TP_bool, TP_bool => true
-    | TP_int, TP_int => true
-    | TP_fun t1 t2, TP_fun t3 t4 => andb (type_eq t1 t3) (type_eq t2 t4)
-    | TP_var id1, TP_var id2 => string_eq id1 id2
-    | TP_error, TP_error => true
+    | TPTypeUnit, TPTypeUnit => true
+    | TPTypeBool, TPTypeBool => true
+    | TPTypeInt, TPTypeInt => true
+    | TPTypeFun t1 t2, TPTypeFun t3 t4 => andb (TPType_eq t1 t3) (TPType_eq t2 t4)
+    | TPTypeVar id1, TPTypeVar id2 => string_eq id1 id2
+    | TPTypeError, TPTypeError => true
     | _, _ => false
   end.
 
-Lemma type_eq_consist: forall t1 t2: TPtype, type_eq t1 t2 = true <-> t1 = t2.
+Lemma TPType_eq_consist: forall t1 t2, TPType_eq t1 t2 = true <-> t1 = t2.
 Proof.
   intros t1 t2. split; intros H.
   (* => *)
@@ -50,30 +50,30 @@ Proof.
     rewrite IHt2_1. rewrite IHt2_2. simpl. now reflexivity.
     (* Case: TP_var *)
     apply string_eq_reflex.
-Qed.  
+Qed.
 
-Fixpoint complexity_type t :=
+Fixpoint TPTypeComplexity t :=
   match t with
-    | TP_fun t1 t2 => plus (plus (complexity_type t1) (complexity_type t2)) (1%nat)
+    | TPTypeFun t1 t2 => plus (plus (TPTypeComplexity t1) (TPTypeComplexity t2)) (1%nat)
     | _ => 1%nat
   end.
 
-Definition complexity_type_eq t :=
+Definition TPTypeEquationComplexity t :=
   match t with
-    | TP_eq t1 t2 => plus (complexity_type t1) (complexity_type t2)
+    | TPTypeEq t1 t2 => plus (TPTypeComplexity t1) (TPTypeComplexity t2)
   end.
 
-Definition complexity types := fold_left plus (map complexity_type_eq types) 0%nat.
+Definition TPTypeEquationListComplexity eqlist := fold_left plus (map TPTypeEquationComplexity eqlist) 0%nat.
 
 Require Import Recdef.
 
-Function unify (types : list TPtype_equality) {measure complexity} : list Subst' :=
+Function unify (types : list TPTypeEquation) {measure TPTypeEquationListComplexity} : list Subst' :=
   match types with
     | nil => nil
-    | ((TP_eq (TP_fun t1 t2) (TP_fun t1' t2')) :: lst) => unify ((TP_eq t1 t1') :: (TP_eq t2 t2') :: lst)
-    | (TP_eq (TP_var id) t) :: lst => (Subst t (TP_var id)) :: unify lst
-    | (TP_eq t (TP_var id)) :: lst => (Subst t (TP_var id)) :: unify lst
-    | (TP_eq t1 t2) :: lst => if type_eq t1 t2 then unify lst else Error :: nil
+    | ((TPTypeEq (TPTypeFun t1 t2) (TPTypeFun t1' t2')) :: lst) => unify ((TPTypeEq t1 t1') :: (TPTypeEq t2 t2') :: lst)
+    | (TPTypeEq (TPTypeVar id) t) :: lst => (Subst t (TPTypeVar id)) :: unify lst
+    | (TPTypeEq t (TPTypeVar id)) :: lst => (Subst t (TPTypeVar id)) :: unify lst
+    | (TPTypeEq t1 t2) :: lst => if TPType_eq t1 t2 then unify lst else Error :: nil
   end.
 Proof.
   intros.
@@ -82,34 +82,33 @@ Proof.
   (*unfold complexity.*)
 Admitted.
 
+Inductive TPTypingJudgement :=
+  | TPTypingJudge (env : list (string * TPType)) (exp : TPExp) (type : TPType).
 
-Inductive Typing_judgement :=
-  | tj (env : list (string * TPtype)) (exp : TPExp) (type : TPtype).
-
-Definition typeof op :=
+Definition TPTypeOfOp op :=
   match op with
-    | TPplus | TPminus | TPmult | TPdiv | TPmod => TP_fun TP_int (TP_fun TP_int TP_int)
-    | _ => TP_fun TP_int (TP_fun TP_int TP_bool)
+    | TPOperatorPlus | TPOperatorMinus | TPOperatorMult | TPOperatorDiv | TPOperatorMod => TPTypeFun TPTypeInt (TPTypeFun TPTypeInt TPTypeInt)
+    | _ => TPTypeFun TPTypeInt (TPTypeFun TPTypeInt TPTypeBool)
   end.
 
 Fixpoint typing_rules env exp {struct exp} :=
   match exp with
-    | TPconst TPunit => TP_unit
-    | TPconst (TPbool _) => TP_bool
-    | TPconst (TPint _) => TP_int
-    | TPconst (TPop op) => typeof op
-    | TPconst TPexn => TP_error
-    | TPconst TPhang => TP_error
-    | TPid id => match find (fun a => string_eq id (fst a)) env with | Some (a,b) => b | None => TP_var "" end
-    | TPapp e1 e2 =>
+    | TPExpConst TPConstantUnit => TPTypeUnit
+    | TPExpConst (TPConstantBool _) => TPTypeBool
+    | TPExpConst (TPConstantInt _) => TPTypeInt
+    | TPExpConst (TPConstantOp op) => TPTypeOfOp op
+    | TPExpConst TPConstantExn => TPTypeError
+    | TPExpConst TPConstantHang => TPTypeError
+    | TPExpId id => match find (fun a => string_eq id (fst a)) env with | Some (a,b) => b | None => TPTypeVar "" end
+    | TPExpApp e1 e2 =>
       match typing_rules env e1 with
-        | TP_fun t1 t2 => if type_eq (typing_rules env e2) t1 then t2 else TP_error
-        | _ => TP_error
+        | TPTypeFun t1 t2 => if TPType_eq (typing_rules env e2) t1 then t2 else TPTypeError
+        | _ => TPTypeError
       end
-    | TPabst id e => typing_rules env e
-    | TPif e1 e2 e3 => if negb (type_eq (typing_rules env e1) TP_bool) then TP_error else if negb (type_eq (typing_rules env e2) (typing_rules env e3)) then TP_error else typing_rules env e2
-    | TPlet id e1 e2 => typing_rules ((id, typing_rules env e1) :: env) e2
-    | TPrec id e => typing_rules env e
+    | TPExpAbstr id e => typing_rules env e
+    | TPExpIf e1 e2 e3 => if negb (TPType_eq (typing_rules env e1) TPTypeBool) then TPTypeError else if negb (TPType_eq (typing_rules env e2) (typing_rules env e3)) then TPTypeError else typing_rules env e2
+    | TPExpLet id e1 e2 => typing_rules ((id, typing_rules env e1) :: env) e2
+    | TPExpRec id e => typing_rules env e
   end.
 
 End TPTyping.
