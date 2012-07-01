@@ -63,17 +63,17 @@ Fixpoint small_step exp :=
       if TPisvalue e2
         then subst e1 e2 id                        (* BETA-V *)
         else TPapp (small_step e1) e2              (* APP-LEFT *)
-    | TPapp e1 exp2 =>
+    | TPapp e1 e2 =>
       match e1 with
         | TPapp (TPconst (TPop op)) exp1 =>
           if TPisvalue exp1 then
-            if TPisvalue exp2 then
-              eval op exp1 exp2                    (* OP *)
-              else TPapp e1 (small_step exp2)      (* APP-RIGHT *)
-            else TPapp (small_step e1) exp2        (* APP-LEFT *)
-        | _ => if TPisvalue exp2
-          then TPapp (small_step e1) exp2
-          else TPapp e1 (small_step exp2)
+            if TPisvalue e2 then
+              eval op exp1 e2                    (* OP *)
+              else TPapp e1 (small_step e2)      (* APP-RIGHT *)
+            else TPapp (small_step e1) e2        (* APP-LEFT *)
+        | _ => if TPisvalue e2
+          then TPapp (small_step e1) e2
+          else if TPisvalue e1 then TPapp e1 (small_step e2) else TPconst TPhang
       end
     | TPif (TPconst (TPbool true)) e2 e3 => e2     (* COND-TRUE *)
     | TPif (TPconst (TPbool false)) e2 e3 => e3    (* COND-FALSE *)
@@ -83,8 +83,8 @@ Fixpoint small_step exp :=
         subst e2 e1 id                             (* LET-EXEC *)
         else TPlet id (small_step e1) e2           (* LET-EVAL *)
     | TPrec id e => subst e (TPrec id e) id        (* UNFOLD *)
- (* | _ => if TPisvalue exp then exp else TPconst TPhang *)
-    | _ => exp
+    | TPconst _ | TPabst _ _ => exp                (* nothing to do with values *)
+    | TPid _ => TPconst TPhang                     (* free identifier, cannot do anything useful *)
  end.
 
 (*Compute small_step (small_step (TPapp (TPabst "x" (TPapp (TPapp (TPconst( TPop TPplus)) (TPid "x")) (TPconst (TPint 1)))) (TPconst (TPint 2)))).*)
@@ -109,8 +109,35 @@ Proof.
     rewrite H1. reflexivity.
 Qed.
 
-Theorem app_left_rule_implemented: forall exp1 exp2, small_step exp1 = exp2 -> forall exp3, small_step (TPapp exp1 exp3) = (TPapp exp2 exp3).
+Lemma small_step_value : forall v, TPisvalue v = true -> small_step v = v.
 Proof.
+  intros v H.
+  induction v; try (now simpl).
+  case_eq v1; intros v1' H'.
+  rewrite H' in H.
+  simpl in H.
+  induction v1'.
+  simpl.
+  case_eq (TPisvalue v2); intro H1.
+  now intuition. now intuition. now intuition. now intuition.
+  simpl; intuition; rewrite H0; destruct (TPisvalue v2); now intuition.
+  now intuition. now intuition.
+  rewrite H' in H; simpl in H;now intuition.
+  intro H1; rewrite H1 in H; simpl in H; now intuition.
+  intro H1; rewrite H1 in H; simpl in H; now intuition.
+  intros exp3 H1; rewrite H1 in H; simpl in H; now intuition.
+  intros exp2 H1; rewrite H1 in H; simpl in H; now intuition.
+  intro H1; rewrite H1 in H; simpl in H; now intuition.
+Qed.
+
+Theorem app_left_rule_implemented: forall exp1 exp2 exp3, TPisvalue exp1 = false -> small_step exp1 = exp2 -> small_step (TPapp exp1 exp3) = TPapp exp2 exp3.
+Proof.
+  intros exp1 exp2 exp3 H H'.
+  destruct H'.
+  case_eq exp1; intros e Hexp1; case_eq (TPisvalue exp3); intro He3val.
+  simpl; rewrite He3val; now reflexivity.
+  rewrite Hexp1 in H; simpl in H; contradict H; now intuition.
+  simpl; rewrite He3val; now reflexivity.
   (* TODO *)
 Admitted.
 
@@ -119,9 +146,10 @@ Proof.
   (* TODO *)
 Admitted.
 
-Theorem cond_eval_rule_implemented: forall exp exp', (small_step exp = exp' /\ exp <> (TPconst (TPbool true)) /\ exp <> (TPconst (TPbool false))) -> forall exp1 exp2, small_step (TPif exp exp1 exp2) = TPif exp' exp1 exp2.
+Theorem cond_eval_rule_implemented: forall exp exp' exp1 exp2,
+  (small_step exp = exp' /\ exp <> (TPconst (TPbool true)) /\ exp <> (TPconst (TPbool false))) -> small_step (TPif exp exp1 exp2) = TPif exp' exp1 exp2.
 Proof.
-  intros exp exp' H exp1 exp2.
+  intros exp exp' exp1 exp2 H.
   destruct H as [H H'].
   destruct H' as [Hnot_true Hnot_false].
 
@@ -145,14 +173,21 @@ Proof.
   intros exp1 exp2. simpl. reflexivity.
 Qed.
 
-Theorem let_eval_rule_implemented: forall exp exp', small_step exp = exp' -> forall id exp1, small_step (TPlet id exp exp1) = TPlet id exp' exp1.
+Theorem let_eval_rule_implemented: forall exp exp' id exp1, TPisvalue exp = false -> small_step exp = exp' -> small_step (TPlet id exp exp1) = TPlet id exp' exp1.
 Proof.
-  (* TODO *)
+  intros exp exp' id exp1 H H'.
+  simpl.
+  rewrite H.
+  rewrite H'.
+  reflexivity.
 Admitted.
 
-Theorem let_exec_rule_implemented: forall id v, TPisvalue v = true -> forall exp, small_step (TPlet id v exp) = subst exp v id.
+Theorem let_exec_rule_implemented: forall id v exp, TPisvalue v = true -> small_step (TPlet id v exp) = subst exp v id.
 Proof.
-  (* TODO *)
-Admitted.
+  intros id v exp H.
+  simpl.
+  rewrite H.
+  reflexivity.
+Qed.
 
 End TPSmallSteps.
