@@ -7,45 +7,78 @@ Require Import Ascii.
 
 Open Scope Z_scope.
 
-Inductive TPop' :=
- | TPplus
- | TPminus
- | TPmult
- | TPdiv
- | TPmod
- | TPless
- | TPlesseq
- | TPgreater
- | TPgreatereq
- | TPeq
- | TPneq.
+Inductive TPOperator :=
+ | TPOperatorPlus
+ | TPOperatorMinus
+ | TPOperatorMult
+ | TPOperatorDiv
+ | TPOperatorMod
+ | TPOperatorLess
+ | TPOperatorLessEq
+ | TPOperatorGreater
+ | TPOperatorGreaterEq
+ | TPOperatorEq
+ | TPOperatorNeq.
 
-Inductive TPconst' :=
- | TPunit
- | TPbool (b : bool)
- | TPint (n : Z)
- | TPop (op : TPop')
- | TPexn
- | TPhang.
+Inductive TPConstant :=
+ | TPConstantUnit
+ | TPConstantBool (b : bool)
+ | TPConstantInt (n : Z)
+ | TPConstantOp (op : TPOperator)
+ | TPConstantExn
+ | TPConstantHang.
 
 Inductive TPExp :=
- | TPconst (c : TPconst')
- | TPid (id : string)
- | TPapp (a b : TPExp)
- | TPabst (id : string) (exp : TPExp)
- | TPif (exp1 exp2 exp3 : TPExp)
- | TPlet (id : string) (exp1 exp2 : TPExp)
- | TPrec (id : string) (exp : TPExp).
+ | TPExpConst (c : TPConstant)
+ | TPExpId (id : string)
+ | TPExpApp (a b : TPExp)
+ | TPExpAbstr (id : string) (exp : TPExp)
+ | TPExpIf (exp1 exp2 exp3 : TPExp)
+ | TPExpLet (id : string) (exp1 exp2 : TPExp)
+ | TPExpRec (id : string) (exp : TPExp).
 
-Fixpoint TPisvalue (exp : TPExp) : bool :=
+(* Shorthands *)
+Definition TPOp op := (TPExpConst (TPConstantOp op)).
+
+Definition TPUnit := (TPExpConst TPConstantUnit).
+Definition TPBool b := (TPExpConst (TPConstantBool b)).
+Definition TPFalse := (TPExpConst (TPConstantBool false)).
+Definition TPTrue := (TPExpConst (TPConstantBool true)).
+Definition TPInt n := (TPExpConst (TPConstantInt n)).
+
+Definition TPPlus := (TPExpConst (TPConstantOp TPOperatorPlus)).
+Definition TPMinus := (TPExpConst (TPConstantOp TPOperatorMinus)).
+Definition TPMult := (TPExpConst (TPConstantOp TPOperatorMult)).
+Definition TPDiv := (TPExpConst (TPConstantOp TPOperatorDiv)).
+Definition TPMod := (TPExpConst (TPConstantOp TPOperatorMod)).
+Definition TPLess := (TPExpConst (TPConstantOp TPOperatorLess)).
+Definition TPLessEq := (TPExpConst (TPConstantOp TPOperatorLessEq)).
+Definition TPGreater := (TPExpConst (TPConstantOp TPOperatorGreater)).
+Definition TPGreaterEq := (TPExpConst (TPConstantOp TPOperatorGreaterEq)).
+Definition TPEq := (TPExpConst (TPConstantOp TPOperatorEq)).
+Definition TPNeq := (TPExpConst (TPConstantOp TPOperatorNeq)).
+
+Definition TPExn := (TPExpConst TPConstantExn).
+Definition TPHang := (TPExpConst TPConstantHang).
+
+Definition TPConst c := TPExpConst c.
+Definition TPId id := TPExpId id.
+Definition TPApp a b := TPExpApp a b.
+Definition TPAbstr id exp := TPExpAbstr id exp.
+Definition TPIf exp1 exp2 exp3 := TPExpIf exp1 exp2 exp3.
+Definition TPLet id exp1 exp2 := TPExpLet id exp1 exp2.
+Definition TPRec id exp := TPExpRec id exp.
+
+
+Fixpoint TPIsValue (exp : TPExp) : bool :=
   match exp with
-    | TPconst _ => true
-    | TPabst _ _ => true
-    | TPapp (TPconst (TPop _)) exp => TPisvalue exp
+    | TPExpConst _ => true
+    | TPExpAbstr _ _ => true
+    | TPExpApp (TPExpConst (TPConstantOp _)) exp => TPIsValue exp
     | _ => false
   end.
 
-Lemma TPisvalue_consist: forall exp, TPisvalue exp = true <-> (exists c, exp = TPconst c) \/ (exists id, exists exp', exp = TPabst id exp') \/ (exists op, exists exp', (exp = TPapp (TPconst (TPop op)) exp' /\ TPisvalue exp' = true)).
+Lemma TPIsValue_consist: forall exp, TPIsValue exp = true <-> (exists c, exp = TPConst c) \/ (exists id, exists exp', exp = TPAbstr id exp') \/ (exists op, exists exp', (exp = TPApp (TPOp op) exp' /\ TPIsValue exp' = true)).
 Proof.
   intros exp. split; intros H.
   (* => *)
@@ -82,69 +115,69 @@ Proof.
 Qed.
 
 (* Boolean version of operator equality *)
-Definition TPop_eq op1 op2 :=
+Definition TPOperator_eq op1 op2 :=
   match op1, op2 with
-    | TPplus, TPplus => true
-    | TPminus, TPminus => true
-    | TPmult, TPmult => true
-    | TPdiv, TPdiv => true
-    | TPmod, TPmod => true
-    | TPless, TPless => true
-    | TPlesseq, TPlesseq => true
-    | TPgreater, TPgreater => true
-    | TPgreatereq, TPgreatereq => true
-    | TPeq, TPeq => true
-    | TPneq, TPneq => true
+    | TPOperatorPlus, TPOperatorPlus => true
+    | TPOperatorMinus, TPOperatorMinus => true
+    | TPOperatorMult, TPOperatorMult => true
+    | TPOperatorDiv, TPOperatorDiv => true
+    | TPOperatorMod, TPOperatorMod => true
+    | TPOperatorLess, TPOperatorLess => true
+    | TPOperatorLessEq, TPOperatorLessEq => true
+    | TPOperatorGreater, TPOperatorGreater => true
+    | TPOperatorGreaterEq, TPOperatorGreaterEq => true
+    | TPOperatorEq, TPOperatorEq => true
+    | TPOperatorNeq, TPOperatorNeq => true
     | _, _ => false
   end.
 
 (* Consistency lemma *)
-Lemma TPop_eq_consist: forall op1 op2: TPop', TPop_eq op1 op2 = true <-> op1 = op2.
+Lemma TPOperator_eq_consist: forall op1 op2, TPOperator_eq op1 op2 = true <-> op1 = op2.
 Proof.
   intros op1 op2.
   split; intros H.
     (* => *)
-    destruct op1; destruct op2; solve [discriminate | reflexivity].
+    destruct op1; destruct op2; (discriminate || reflexivity).
     (* <= *)
     destruct op1; destruct op2; simpl; solve [discriminate | reflexivity].
 Qed.
 
-Lemma TPop_eq_reflex: forall op: TPop', TPop_eq op op = true.
+Lemma TPOperator_eq_reflex: forall op, TPOperator_eq op op = true.
 Proof.
   intros op.
   destruct op; simpl; reflexivity.
 Qed.
 
 (* Boolean version of constant equality *)
-Fixpoint TPconst_eq c1 c2 :=
+Fixpoint TPConstant_eq c1 c2 :=
   match c1, c2 with
-    | TPunit, TPunit => true
-    | TPbool b1, TPbool b2 => bool_eq b1 b2
-    | TPint n1, TPint n2 => Zeq_bool n1 n2
-    | TPop op1, TPop op2 => TPop_eq op1 op2
-    | TPexn, TPexn => true
-    | TPhang, TPhang => true
+    | TPConstantUnit, TPConstantUnit => true
+    | TPConstantBool b1, TPConstantBool b2 => bool_eq b1 b2
+    | TPConstantInt n1, TPConstantInt n2 => Zeq_bool n1 n2
+    | TPConstantOp op1, TPConstantOp op2 => TPOperator_eq op1 op2
+    | TPConstantExn, TPConstantExn => true
+    | TPConstantHang, TPConstantHang => true
     | _, _ => false
   end.
 
 (* Consistency lemma *)
-Lemma TPconst_eq_consist: forall c1 c2: TPconst', TPconst_eq c1 c2 = true <-> c1 = c2.
+Lemma TPConstant_eq_consist: forall c1 c2: TPConstant, TPConstant_eq c1 c2 = true <-> c1 = c2.
 Proof.
   intros c1 c2.
   split; intros H.
     (* => *)
-    destruct c1; destruct c2; simpl in H; try discriminate; try reflexivity.
+    destruct c1; destruct c2; simpl in H; try (discriminate || reflexivity).
     apply bool_eq_ok in H; rewrite H; reflexivity.
     apply Zeq_bool_eq in H; rewrite H; reflexivity.
-    apply TPop_eq_consist in H; rewrite H; reflexivity.
+    apply TPOperator_eq_consist in H; rewrite H; reflexivity.
     (* <= *)
     destruct c1; destruct c2; simpl in H; simpl; try discriminate; try reflexivity.
     inversion H. destruct b0; reflexivity.
     inversion H. apply Zeq_is_eq_bool. reflexivity.
-    inversion H. apply TPop_eq_consist. reflexivity.
+    inversion H. apply TPOperator_eq_consist. reflexivity.
 Qed.
 
-Lemma TPconst_eq_reflex: forall c: TPconst', TPconst_eq c c = true.
+Lemma TPConstant_eq_reflex: forall c: TPConstant, TPConstant_eq c c = true.
 Proof.
   intros c.
   induction c; simpl.
@@ -157,7 +190,7 @@ Proof.
     induction p; auto.
     induction p; auto.
     (* Case TPop*)
-    now apply TPop_eq_reflex.
+    now apply TPOperator_eq_reflex.
     (* Case TPexn*)
     now reflexivity.
     (* Case TPhang*)
@@ -267,13 +300,13 @@ Definition string_neq s1 s2 := negb (string_eq s1 s2).
 (* Boolean version of expression equality *)
 Fixpoint TPExp_eq exp1 exp2 :=
   match exp1, exp2 with
-    | TPconst c1, TPconst c2 => TPconst_eq c1 c2
-    | TPid id1, TPid id2 => string_eq id1 id2
-    | TPapp exp11 exp12, TPapp exp21 exp22 => andb (TPExp_eq exp11 exp21) (TPExp_eq exp12 exp22)
-    | TPabst id1 exp1, TPabst id2 exp2 => andb (string_eq id1 id2) (TPExp_eq exp1 exp2)
-    | TPif e11 e12 e13, TPif e21 e22 e23 => andb (TPExp_eq e11 e21) (andb (TPExp_eq e12 e22) (TPExp_eq e13 e23))
-    | TPlet id1 e11 e12, TPlet id2 e21 e22 => andb (string_eq id1 id2) (andb (TPExp_eq e11 e21) (TPExp_eq e12 e22))
-    | TPrec id1 e1, TPrec id2 e2 => andb (string_eq id1 id2) (TPExp_eq e1 e2)
+    | TPExpConst c1, TPExpConst c2 => TPConstant_eq c1 c2
+    | TPExpId id1, TPExpId id2 => string_eq id1 id2
+    | TPExpApp exp11 exp12, TPExpApp exp21 exp22 => andb (TPExp_eq exp11 exp21) (TPExp_eq exp12 exp22)
+    | TPExpAbstr id1 exp1, TPExpAbstr id2 exp2 => andb (string_eq id1 id2) (TPExp_eq exp1 exp2)
+    | TPExpIf e11 e12 e13, TPExpIf e21 e22 e23 => andb (TPExp_eq e11 e21) (andb (TPExp_eq e12 e22) (TPExp_eq e13 e23))
+    | TPExpLet id1 e11 e12, TPExpLet id2 e21 e22 => andb (string_eq id1 id2) (andb (TPExp_eq e11 e21) (TPExp_eq e12 e22))
+    | TPExpRec id1 e1, TPExpRec id2 e2 => andb (string_eq id1 id2) (TPExp_eq e1 e2)
     | _, _ => false
   end.
 
@@ -285,21 +318,21 @@ Proof.
     (* => *)
     generalize dependent exp2.
     induction exp1; destruct exp2; intros H; try discriminate; simpl in H.
-    (* Case: TPconst *)
-    apply TPconst_eq_consist in H. rewrite H. now reflexivity.
-    (* Case: TPid *)
+    (* Case: TPExpConst *)
+    apply TPConstant_eq_consist in H. rewrite H. now reflexivity.
+    (* Case: TPExpId *)
     apply string_eq_consist in H. rewrite H. now reflexivity.
-    (* Case: TPapp *)
+    (* Case: TPExpApp *)
     apply andb_prop in H. destruct H as [H H'].
     rewrite IHexp1_1 with (exp2:=exp2_1).
     rewrite IHexp1_2 with (exp2:=exp2_2).
     now reflexivity. now exact H'. now exact H.
-    (* Case: TPabst *)
+    (* Case: TPExpAbstr *)
     apply andb_prop in H. destruct H as [H H'].
     apply string_eq_consist in H. rewrite H.
     rewrite IHexp1 with (exp2:=exp2).
     now reflexivity. now exact H'.
-    (* Case: TPif *)
+    (* Case: TPExpIf *)
     apply andb_prop in H. destruct H as [H H'].
     apply andb_prop in H'. destruct H' as [H' H''].
     rewrite IHexp1_1 with (exp2:=exp2_1).
@@ -307,7 +340,7 @@ Proof.
     rewrite IHexp1_3 with (exp2:=exp2_3).
     now reflexivity.
     now exact H''. now exact H'. now exact H.
-    (* Case: TPlet *)
+    (* Case: TPExpLet *)
     apply andb_prop in H. destruct H as [H H'].
     apply andb_prop in H'. destruct H' as [H' H''].
     apply string_eq_consist in H. rewrite H.
@@ -315,7 +348,7 @@ Proof.
     rewrite IHexp1_2 with (exp2:=exp2_2).
     now reflexivity.
     now exact H''. now exact H'.
-    (* Case: TPrec *)
+    (* Case: TPExpRec *)
     apply andb_prop in H. destruct H as [H H'].
     apply string_eq_consist in H. rewrite H.
     rewrite IHexp1 with (exp2:=exp2).
@@ -324,23 +357,23 @@ Proof.
     (* <= *)
     rewrite H. clear H. clear exp1.
     induction exp2; simpl.
-    (* Case TPconst *)
-    now apply TPconst_eq_reflex.
-    (* Case TPid *)
+    (* Case TPExpConst *)
+    now apply TPConstant_eq_reflex.
+    (* Case TPExpId *)
     now apply string_eq_reflex.
-    (* Case TPapp *)
+    (* Case TPExpApp *)
     rewrite IHexp2_1. rewrite IHexp2_2.
     simpl. now reflexivity.
-    (* Case TPabst *)
+    (* Case TPExpAbstr *)
     rewrite string_eq_reflex. rewrite IHexp2.
     simpl. now reflexivity.
-    (* Case TPif *)
+    (* Case TPExpIf *)
     rewrite IHexp2_1. rewrite IHexp2_2. rewrite IHexp2_3.
     simpl. now reflexivity.
-    (* Case TPlet *)
+    (* Case TPExpLet *)
     rewrite string_eq_reflex. rewrite IHexp2_1. rewrite IHexp2_2. 
     simpl. now reflexivity.
-    (* Case TPrec *)
+    (* Case TPExpRec *)
     rewrite string_eq_reflex. rewrite IHexp2.
     simpl. now reflexivity.
 Qed.
