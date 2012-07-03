@@ -69,49 +69,49 @@ Definition TPIf exp1 exp2 exp3 := TPExpIf exp1 exp2 exp3.
 Definition TPLet id exp1 exp2 := TPExpLet id exp1 exp2.
 Definition TPRec id exp := TPExpRec id exp.
 
+Inductive TPIsValue: TPExp -> Prop :=
+| TPConstIsValue: forall c, TPIsValue (TPExpConst c)
+| TPAbstrIsValue: forall id exp, TPIsValue (TPAbstr id exp)
+| TPAppIsValue: forall op exp, TPIsValue exp -> TPIsValue (TPApp (TPOp op) exp).
 
-Fixpoint TPIsValue (exp : TPExp) : bool :=
+Fixpoint TPIsValue_bool (exp : TPExp) : bool :=
   match exp with
     | TPExpConst _ => true
     | TPExpAbstr _ _ => true
-    | TPExpApp (TPExpConst (TPConstantOp _)) exp => TPIsValue exp
+    | TPExpApp (TPExpConst (TPConstantOp _)) exp => TPIsValue_bool exp
     | _ => false
   end.
 
-Lemma TPIsValue_consist: forall exp, TPIsValue exp = true <-> (exists c, exp = TPConst c) \/ (exists id, exists exp', exp = TPAbstr id exp') \/ (exists op, exists exp', (exp = TPApp (TPOp op) exp' /\ TPIsValue exp' = true)).
+Lemma TPIsValue_consist: forall exp, TPIsValue_bool exp = true <-> TPIsValue exp.
 Proof.
   intros exp. split; intros H.
   (* => *)
-  induction exp; try (contradict H; discriminate).
-  (* Case exp: TPconst *)
-  left. exists c. now reflexivity.
-  (* Case exp: TPApp *)
-  destruct exp1; simpl in H; try (contradict H; discriminate).
-    (* Case exp1: TPconst *)
-    destruct c; try (contradict H; discriminate).
-      destruct IHexp2.
-        (* Condition: TPisvalue exp2 = true *)
-        exact H.
-        (* Case: First exist is true *)
-        destruct H0. right. right. exists op. exists exp2. split. reflexivity. rewrite H0.  simpl. reflexivity.
-        (* Case: Second or third exist is true *)
-        destruct H0. 
-        (* Case: Second exist is true *)
-        destruct H0. destruct H0. right. right. exists op. exists exp2. split. reflexivity. rewrite H0.  simpl. reflexivity.
-        (* Case: Third exist is true *)
-        destruct H0. destruct H0. destruct H0. right. right. exists op. exists exp2. split. reflexivity. rewrite H0.  simpl. exact H1.
-  (* Case exp: TPabst *)
-  right. left. exists id. exists exp. reflexivity.
+    induction exp; try ((contradict H; discriminate) || constructor).
+    (* Case exp: TPExpApp *)
+    destruct exp1; simpl in H; try (contradict H; discriminate).
+      destruct c; try (contradict H; discriminate).
+      constructor. apply IHexp2. exact H.
   (* <= *)
-  destruct H.
-    (* Case: First exist is true *)
-    destruct H. rewrite H. compute. now reflexivity.
-    (* Case: Second or third exist is true *)
-    destruct H.
-    (* Case: Second exist is true *)
-    destruct H. destruct H. rewrite H. compute. now reflexivity.
-    (* Case: Third exist is true *)
-    destruct H. destruct H. destruct H. rewrite H. simpl. exact H0.
+    induction exp; inversion H; simpl; try reflexivity.
+    (* Case: TPOp *)
+    apply IHexp2. exact H1.
+Qed.
+
+Lemma TPIsValue_cases: forall exp, TPIsValue exp <-> (exists c, exp = TPConst c) \/ (exists id, exists exp', exp = TPAbstr id exp') \/ (exists op, exists exp', (exp = TPApp (TPOp op) exp' /\ TPIsValue exp')).
+Proof.
+  intros exp. split; intros H.
+  (* => *)
+  inversion H.
+    left. exists c. reflexivity.
+    right. left. exists id. exists exp0. reflexivity.
+    right. right. exists op. exists exp0. split.
+      reflexivity.
+      exact H0.
+    (* <= *)
+    destruct H as [[c H] | [[id [exp' H]] | [op [exp' [H H']]]]].
+      rewrite H. constructor.
+      rewrite H. constructor.
+      rewrite H. constructor. exact H'.
 Qed.
 
 (* Boolean version of operator equality *)
