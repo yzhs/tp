@@ -1,11 +1,11 @@
 Module TPSmallSteps.
 
 Load TPSyntax.
-Import TPSyntax.
+Export TPSyntax.
 
 Open Scope Z_scope.
 
-Definition eval op n1 n2 :=
+Definition TPEvalOp op n1 n2 :=
   match op,  n1, n2 with
     | TPOperatorPlus,     TPExpConst (TPConstantInt n), TPExpConst (TPConstantInt n') => TPInt (n + n')
     | TPOperatorMinus,    TPExpConst (TPConstantInt n), TPExpConst (TPConstantInt n') => TPInt (n - n')
@@ -22,15 +22,15 @@ Definition eval op n1 n2 :=
   end.
 
 (* TODO: rewrite using sets (ListSet?) *)
-Fixpoint free exp :=
+Fixpoint TPFreeVars exp :=
   match exp with
     | TPExpConst _ => nil
     | TPExpId id => id :: nil
-    | TPExpApp exp1 exp2 => app (free exp1) (free exp2)
-    | TPExpIf exp1 exp2 exp3 => app (free exp1) (app (free exp2) (free exp3))
-    | TPExpAbstr id exp => filter (string_neq id) (free exp)
-    | TPExpLet id e1 e2 => app (filter (string_neq id) (free e2)) (free e1)
-    | TPExpRec id exp => filter (string_neq id) (free exp)
+    | TPExpApp exp1 exp2 => app (TPFreeVars exp1) (TPFreeVars exp2)
+    | TPExpIf exp1 exp2 exp3 => app (TPFreeVars exp1) (app (TPFreeVars exp2) (TPFreeVars exp3))
+    | TPExpAbstr id exp => filter (string_neq id) (TPFreeVars exp)
+    | TPExpLet id e1 e2 => app (filter (string_neq id) (TPFreeVars e2)) (TPFreeVars e1)
+    | TPExpRec id exp => filter (string_neq id) (TPFreeVars exp)
   end.
 
 (*
@@ -46,158 +46,102 @@ Fixpoint subst free_ids e e' id :=
   end.
 *)
 
-Fixpoint subst e e' id :=
+(* Substitute id in e by e' *)
+Fixpoint TPSubst e e' id :=
   match e with
     | TPExpConst c => e
     | TPExpId id' => if string_eq id' id then e' else TPExpId id'
-    | TPExpIf e1 e2 e3 => TPExpIf (subst e1 e' id) (subst e2 e' id) (subst e3 e' id)
-    | TPExpApp e1 e2 => TPExpApp (subst e1 e' id) (subst e2 e' id)
-    | TPExpAbstr id' e => if string_eq id' id then e else TPExpAbstr id' (subst e e' id)
-    | TPExpLet id' e1 e2 => TPExpLet id' (subst e1 e' id) (if string_eq id id' then e2 else subst e2 e' id)
-    | TPExpRec id' e => if string_eq id' id then e else TPExpRec id' (subst e e' id)
+    | TPExpIf e1 e2 e3 => TPExpIf (TPSubst e1 e' id) (TPSubst e2 e' id) (TPSubst e3 e' id)
+    | TPExpApp e1 e2 => TPExpApp (TPSubst e1 e' id) (TPSubst e2 e' id)
+    | TPExpAbstr id' e => if string_eq id' id then e else TPExpAbstr id' (TPSubst e e' id)
+    | TPExpLet id' e1 e2 => TPExpLet id' (TPSubst e1 e' id) (if string_eq id id' then e2 else TPSubst e2 e' id)
+    | TPExpRec id' e => if string_eq id' id then e else TPExpRec id' (TPSubst e e' id)
   end.
+Inductive TPMakesSmallstep: TPExp -> TPExp -> Prop :=
+| smallstep_op: forall n1 n2 op, TPMakesSmallstep (TPApp (TPApp (TPOp op) (TPInt n1)) (TPInt n2)) (TPEvalOp op (TPInt n1) (TPInt n2))
+| smallstep_betav: forall id exp v, TPIsValue v -> TPMakesSmallstep (TPApp (TPAbstr id exp) v) (TPSubst exp v id)
+| smallstep_appleft: forall exp1 exp1' exp2, TPMakesSmallstep exp1 exp1' -> TPMakesSmallstep (TPApp exp1 exp2) (TPApp exp1' exp2)
+| smallstep_appright: forall exp exp' v, TPIsValue v -> TPMakesSmallstep exp exp' -> TPMakesSmallstep (TPApp v exp) (TPApp v exp')
+| smallstep_condeval: forall exp0 exp0' exp1 exp2, TPMakesSmallstep exp0 exp0' -> TPMakesSmallstep (TPIf exp0 exp1 exp2) (TPIf exp0' exp1 exp2)
+| smallstep_condtrue: forall exp1 exp2, TPMakesSmallstep (TPIf TPTrue exp1 exp2) exp1
+| smallstep_condfalse: forall exp1 exp2, TPMakesSmallstep (TPIf TPFalse exp1 exp2) exp2
+| smallstep_leteval: forall id exp1 exp1' exp2, TPMakesSmallstep exp1 exp1' -> TPMakesSmallstep (TPLet id exp1 exp2) (TPLet id exp1' exp2)
+| smallstep_letexec: forall id exp v, TPIsValue v -> TPMakesSmallstep (TPLet id v exp) (TPSubst exp v id).
 
-Fixpoint small_step exp :=
-  match exp with
-    | TPExpApp (TPExpAbstr id e1) e2 =>
-      if TPIsValue e2
-        then subst e1 e2 id                                   (* BETA-V *)
-        else TPApp (small_step e1) e2                         (* APP-LEFT *)
-    | TPExpApp e1 e2 =>
-      match e1 with
-        | TPExpApp (TPExpConst (TPConstantOp op)) exp1 =>
-          if TPIsValue exp1 then
-            if TPIsValue e2 then
-              eval op exp1 e2                               (* OP *)
-              else TPApp e1 (small_step e2)                 (* APP-RIGHT *)
-            else TPApp (small_step e1) e2                   (* APP-LEFT *)
-        | _ => if TPIsValue e2
-          then TPApp (small_step e1) e2
-          (* else TPApp e1 (small_step e2) *)
-          else if TPIsValue e1 then TPApp e1 (small_step e2) else TPHang
-      end
-    | TPExpIf (TPExpConst (TPConstantBool true)) e2 e3 => e2  (* COND-TRUE *)
-    | TPExpIf (TPExpConst (TPConstantBool false)) e2 e3 => e3 (* COND-FALSE *)
-    | TPExpIf e1 e2 e3 => TPExpIf (small_step e1) e2 e3       (* COND-EVAL *)
-    | TPExpLet id e1 e2 =>
-      if TPIsValue e1
-        then subst e2 e1 id                                   (* LET-EXEC *)
-        else TPLet id (small_step e1) e2                      (* LET-EVAL *)
-    | TPExpRec id e => subst e (TPExpRec id e) id             (* UNFOLD *)
-    | TPExpId _ => TPExpConst TPConstantHang                  (* free identifier, cannot do anything useful *)
-    (* The function small step should only be defined for non-values, the following cases would not be needed then. *)
-    | TPExpConst _ | TPExpAbstr _ _ => exp                    (* nothing to do with values *)
- end.
+Inductive NonEmptyList (A: Type) :=
+| Singleton: A -> NonEmptyList A
+| Cons: A -> NonEmptyList A -> NonEmptyList A.
 
-(*Compute small_step (small_step (TPExpApp (TPExpAbstr "x" (TPExpApp (TPExpApp (TPConstant( TPop TPplus)) (TPExpId "x")) (TPConstant (TPint 1)))) (TPConstant (TPint 2)))).*)
+Implicit Arguments Singleton [A].
+Implicit Arguments Cons [A].
 
-Theorem op_rule_implemented: forall exp op exp1 exp2, exp = (TPApp (TPApp (TPOp op) exp1) exp2) /\ andb (TPIsValue exp1) (TPIsValue exp2) = true -> small_step exp = eval op exp1 exp2.
+Definition first {A: Type}(l: NonEmptyList A) := match l with
+| Singleton a => a
+| Cons a l' => a
+end.
+
+Fixpoint last {A: Type}(l: NonEmptyList A) := match l with
+| Singleton a => a
+| Cons a l' => (last l')
+end.
+
+Fixpoint length {A: Type}(l: NonEmptyList A) := match l with
+| Singleton a => 1%nat
+| Cons a l' => S (length l')
+end.
+
+Fixpoint nth_default {A: Type}(def: A)(n: nat)(l: NonEmptyList A) := match n,l with
+| O, l => first l
+| S n', Cons a l' => nth_default def n' l'
+| S n', Singleton a => def
+end.
+
+Definition TPMultipleSmallsteps exp exp':= 
+exists steps: NonEmptyList TPExp, 
+first steps = exp ->
+last steps = exp' ->
+forall n, (n < ((length steps)-1))%nat -> TPMakesSmallstep (nth_default TPExn n steps) (nth_default TPExn (n+1) steps).
+
+Definition step0 :=  (TPLet "square" (TPAbstr "x" (TPApp (TPApp TPMult (TPId "x")) (TPId "x"))) (TPApp (TPId "square")(TPApp (TPId "square") (TPInt 5)))).
+Definition step1 := (TPApp (TPAbstr "x" (TPApp (TPApp TPMult (TPId "x")) (TPId "x")))(TPApp (TPAbstr "x" (TPApp (TPApp TPMult (TPId "x")) (TPId "x"))) (TPInt 5))).
+Definition step2 := (TPApp (TPAbstr "x" (TPApp (TPApp TPMult (TPId "x")) (TPId "x")))(TPApp (TPApp TPMult (TPInt 5)) (TPInt 5))).
+Definition step3 := (TPApp (TPAbstr "x" (TPApp (TPApp TPMult (TPId "x")) (TPId "x")))(TPInt 25)).
+Definition step4 := (TPApp (TPApp TPMult (TPInt 25)) (TPInt 25)).
+Definition step5 := TPInt 625.
+
+Lemma less_nat_cases: forall k n: nat, (k < (S n) <-> k < n \/ k = n)%nat.
 Proof.
-  intros exp op exp1 exp2 H.
-  destruct H as [H H']. apply andb_prop in H'. destruct H' as [H' H''].
-  rewrite H.
-  simpl. rewrite H'. rewrite H''.
-  reflexivity.
+  intros k n.
+  split; intros H.
+  (* => *)
+    apply lt_n_Sm_le in H.
+    case_eq (beq_nat k n); intros Heq.
+      (* Case: true *)
+      right. apply beq_nat_true_iff in Heq. exact Heq.
+      (* Case: false *)
+      left. apply beq_nat_false_iff in Heq.
+      apply nat_total_order in Heq. destruct Heq as [Heq | Heq].
+        (* Case: k < n *)
+        exact Heq.
+        (* Case: k > n *)
+        apply le_lt_trans with (n:=k) in Heq.
+          contradict Heq. apply lt_irrefl.
+          exact H. 
+  (* <= *)
+    destruct H as [H | H].
+      apply lt_S. exact H.
+      rewrite H. constructor.
 Qed.
 
-Theorem beta_v_rule_implemented: forall exp exp' id exp'', (exp = TPApp (TPAbstr id exp') exp'' /\ TPIsValue exp'' = true) -> small_step exp = subst exp' exp'' id.
+Example test1: TPMultipleSmallsteps step0 step5.
 Proof.
-  intros exp exp' id exp'' H. destruct H as [H H'].
-  apply TPIsValue_consist in H'.
-  destruct H' as [[x H0] | [[s [x H0]] | [x [ x0 [H0 H1]]]]];
-  rewrite H0; rewrite H0 in H; clear H0; clear exp''; rewrite H; clear H; simpl.
-    reflexivity.
-    reflexivity.
-    rewrite H1. reflexivity.
-Qed.
-
-Lemma small_step_value : forall v, TPIsValue v = true -> small_step v = v.
-Proof.
-  intros v H.
-  induction v; try (now simpl).
-  case_eq v1; intros v1' H'.
-  rewrite H' in H.
-  simpl in H.
-  induction v1'.
-  simpl.
-  case_eq (TPIsValue v2); intro H1.
-  now intuition. now intuition. now intuition. now intuition.
-  simpl; intuition; rewrite H0; destruct (TPIsValue v2); now intuition.
-  now intuition. now intuition.
-  rewrite H' in H; simpl in H;now intuition.
-  intro H1; rewrite H1 in H; simpl in H; now intuition.
-  intro H1; rewrite H1 in H; simpl in H; now intuition.
-  intros exp3 H1; rewrite H1 in H; simpl in H; now intuition.
-  intros exp2 H1; rewrite H1 in H; simpl in H; now intuition.
-  intro H1; rewrite H1 in H; simpl in H; now intuition.
-Qed.
-
-(*
-Theorem app_left_rule_implemented: forall exp1 exp2, small_step exp1 = exp2 -> forall exp3, small_step (TPExpApp exp1 exp3) = (TPExpApp exp2 exp3).
-*)
-Theorem app_left_rule_implemented: forall exp1 exp2 exp3,
-  TPIsValue exp1 = false -> small_step exp1 = exp2 -> small_step (TPExpApp exp1 exp3) = TPExpApp exp2 exp3.
-Proof.
-  intros exp1 exp2 exp3 H H'.
-  destruct H'.
-  case_eq exp1; intros e Hexp1; case_eq (TPIsValue exp3); intro He3val.
-  simpl; rewrite He3val; now reflexivity.
-  rewrite Hexp1 in H; simpl in H; contradict H; now intuition.
-  simpl; rewrite He3val; now reflexivity.
-  (* TODO *)
-Admitted.
-
-Theorem app_right_rule_implemented: forall exp1 exp2, small_step exp1 = exp2 -> forall v, TPIsValue v = true -> small_step (TPApp v exp1) = (TPApp v exp2).
-Proof.
-  (* TODO *)
-Admitted.
-
-Theorem cond_eval_rule_implemented: forall exp exp' exp1 exp2,
-  (small_step exp = exp' /\ exp <> TPTrue /\ exp <> TPFalse) -> small_step (TPExpIf exp exp1 exp2) = TPIf exp' exp1 exp2.
-(*
-Theorem cond_eval_rule_implemented: forall exp exp', (small_step exp = exp' /\ exp <> TPTrue /\ exp <> TPFalse) -> forall exp1 exp2, small_step (TPIf exp exp1 exp2) = TPIf exp' exp1 exp2.
-*)
-Proof.
-  intros exp exp' exp1 exp2 H.
-  destruct H as [H H'].
-  destruct H' as [Hnot_true Hnot_false].
-
-  rewrite <- H. clear H. clear exp'.
-  induction exp; simpl; try reflexivity.
-    (* Case: TPConstant *)
-    destruct c; compute; try reflexivity.
-      (* Case: TPBool *)
-      destruct b.
-      contradict Hnot_true. reflexivity.
-      contradict Hnot_false. reflexivity.
-Qed.
-
-Theorem cond_true_rule_implemented: forall exp1 exp2, small_step (TPIf TPTrue exp1 exp2) = exp1.
-Proof.
-  intros exp1 exp2. simpl. reflexivity.
-Qed.
-
-Theorem cond_false_rule_implemented: forall exp1 exp2, small_step (TPIf TPFalse exp1 exp2) = exp2.
-Proof.
-  intros exp1 exp2. simpl. reflexivity.
-Qed.
-
-(* Here we need the additional requirement TPIsValue exp = false, because otherwise there will be no "real" small step exp -> exp' *)
-Theorem let_eval_rule_implemented: forall exp exp' id exp1, TPIsValue exp = false -> small_step exp = exp' -> small_step (TPLet id exp exp1) = TPLet id exp' exp1.
-Proof.
-  intros exp exp' id exp1 H H'.
-  simpl.
-  rewrite H.
-  rewrite H'.
-  reflexivity.
-Qed.
-
-Theorem let_exec_rule_implemented: forall id v exp, TPIsValue v = true -> small_step (TPLet id v exp) = subst exp v id.
-Proof.
-  intros id v exp H.
-  simpl.
-  rewrite H.
-  reflexivity.
+  unfold TPMultipleSmallsteps.
+  exists (Cons step0 (Cons step1 (Cons step2 (Cons step3 (Cons step4 (Singleton step5)))))).
+  intros Hfirst Hlast n Hn.
+  simpl in Hfirst. simpl in Hlast. simpl in Hn.
+  
+  repeat ((try (apply lt_n_Sm_le in Hn; apply le_n_0_eq in Hn; symmetry in Hn)) || (try (apply less_nat_cases in Hn; destruct Hn as [Hn | H]))); try rename H into Hn;
+  rewrite Hn; simpl; repeat constructor.
 Qed.
 
 End TPSmallSteps.
