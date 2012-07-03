@@ -1,7 +1,5 @@
 Module TPConcreteTyping.
 
-Load TPSyntax.
-Import TPSyntax.
 Load TPSmallSteps.
 Import TPSmallSteps.
 Load TPTyping.
@@ -47,6 +45,8 @@ Admitted.
 Inductive TPTypingJudgement :=
   | TPTypingJudge (env : list (string * TPType)) (exp : TPExp) (type : TPType).
 
+(*
+(* This function does not work because, due to a weird typing issue, op has type TPOperator instead of TPSmallSteps.TPSyntax.TPOperator *)
 Fixpoint typing_rules env exp {struct exp} :=
   match exp with
     | TPExpConst TPConstantUnit => TPTypeUnit
@@ -66,5 +66,6 @@ Fixpoint typing_rules env exp {struct exp} :=
     | TPExpLet id e1 e2 => typing_rules ((id, typing_rules env e1) :: env) e2
     | TPExpRec id e => typing_rules env e
   end.
+*)
 
 End TPConcreteTyping.

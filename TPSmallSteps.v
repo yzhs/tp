@@ -1,5 +1,8 @@
 Module TPSmallSteps.
 
+Require Import String.
+Open Scope string_scope.
+
 Load TPSyntax.
 Export TPSyntax.
 
@@ -21,21 +24,18 @@ Definition TPEvalOp op n1 n2 :=
     | _, _, _ => TPHang
   end.
 
-(* TODO: rewrite using sets (ListSet?) *)
 Fixpoint TPFreeVars exp :=
   match exp with
     | TPExpConst _ => nil
     | TPExpId id => id :: nil
     | TPExpApp exp1 exp2 => app (TPFreeVars exp1) (TPFreeVars exp2)
     | TPExpIf exp1 exp2 exp3 => app (TPFreeVars exp1) (app (TPFreeVars exp2) (TPFreeVars exp3))
-    | TPExpAbstr id exp => filter (string_neq id) (TPFreeVars exp)
-    | TPExpLet id e1 e2 => app (filter (string_neq id) (TPFreeVars e2)) (TPFreeVars e1)
-    | TPExpRec id exp => filter (string_neq id) (TPFreeVars exp)
+    | TPExpAbstr id exp => filter (ident_eq id) (TPFreeVars exp)
+    | TPExpLet id e1 e2 => app (filter (ident_eq id) (TPFreeVars e2)) (TPFreeVars e1)
+    | TPExpRec id exp => filter (ident_eq id) (TPFreeVars exp)
   end.
 
 (*
-Fixpoint new_id free_ids id :=
-
 Fixpoint subst free_ids e e' id :=
   match e with
     | TPConstant c => c
@@ -46,27 +46,59 @@ Fixpoint subst free_ids e e' id :=
   end.
 *)
 
+Definition new_id highest_id id := (TPId (id, S highest_id), S highest_id).
+
 (* Substitute id in e by e' *)
-Fixpoint TPSubst e e' id :=
+Fixpoint TPSubst (highest_id : nat) e e' id : TPExp * nat :=
   match e with
-    | TPExpConst c => e
-    | TPExpId id' => if string_eq id' id then e' else TPExpId id'
-    | TPExpIf e1 e2 e3 => TPExpIf (TPSubst e1 e' id) (TPSubst e2 e' id) (TPSubst e3 e' id)
-    | TPExpApp e1 e2 => TPExpApp (TPSubst e1 e' id) (TPSubst e2 e' id)
-    | TPExpAbstr id' e => if string_eq id' id then e else TPExpAbstr id' (TPSubst e e' id)
-    | TPExpLet id' e1 e2 => TPExpLet id' (TPSubst e1 e' id) (if string_eq id id' then e2 else TPSubst e2 e' id)
-    | TPExpRec id' e => if string_eq id' id then e else TPExpRec id' (TPSubst e e' id)
+    | TPExpConst c => (e, highest_id)
+    | TPExpId id' =>
+      if ident_eq id' id
+        then (e', highest_id)
+        else (TPExpId id', highest_id)
+    | TPExpIf e1 e2 e3 =>
+      let (e1', n1) := TPSubst highest_id e1 e' id in
+        let (e2', n2) := TPSubst n1 e2 e' id in
+          let (e3', n3) := TPSubst n2 e3 e' id in
+            (TPIf e1' e2' e3', n3)
+    | TPExpApp e1 e2 =>
+      let (e1', n1) := TPSubst highest_id e1 e' id in
+        let (e2', n2) := TPSubst n1 e2 e' id in
+         (TPExpApp e1' e2', n2)
+    | TPExpAbstr id' e =>
+      if ident_eq id' id
+        then (e, highest_id)
+        else let (e1, n) := TPSubst highest_id e e' id in (TPExpAbstr id' e1, n)
+    | TPExpLet id' e1 e2 =>
+      let (e1', n1) := TPSubst highest_id e1 e' id in
+        let (e2', n2) := TPSubst n1 e2 e' id in
+          (TPExpLet id' e1' (if ident_eq id' id then e2 else e2'), n2)
+    | TPExpRec id' e =>
+      if ident_eq id' id
+        then (e, highest_id)
+        else let (e'', n) := TPSubst highest_id e e' id in (TPExpRec id' e'', n)
   end.
-Inductive TPMakesSmallstep: TPExp -> TPExp -> Prop :=
-| smallstep_op: forall n1 n2 op, TPMakesSmallstep (TPApp (TPApp (TPOp op) (TPInt n1)) (TPInt n2)) (TPEvalOp op (TPInt n1) (TPInt n2))
-| smallstep_betav: forall id exp v, TPIsValue v -> TPMakesSmallstep (TPApp (TPAbstr id exp) v) (TPSubst exp v id)
-| smallstep_appleft: forall exp1 exp1' exp2, TPMakesSmallstep exp1 exp1' -> TPMakesSmallstep (TPApp exp1 exp2) (TPApp exp1' exp2)
-| smallstep_appright: forall exp exp' v, TPIsValue v -> TPMakesSmallstep exp exp' -> TPMakesSmallstep (TPApp v exp) (TPApp v exp')
-| smallstep_condeval: forall exp0 exp0' exp1 exp2, TPMakesSmallstep exp0 exp0' -> TPMakesSmallstep (TPIf exp0 exp1 exp2) (TPIf exp0' exp1 exp2)
-| smallstep_condtrue: forall exp1 exp2, TPMakesSmallstep (TPIf TPTrue exp1 exp2) exp1
-| smallstep_condfalse: forall exp1 exp2, TPMakesSmallstep (TPIf TPFalse exp1 exp2) exp2
-| smallstep_leteval: forall id exp1 exp1' exp2, TPMakesSmallstep exp1 exp1' -> TPMakesSmallstep (TPLet id exp1 exp2) (TPLet id exp1' exp2)
-| smallstep_letexec: forall id exp v, TPIsValue v -> TPMakesSmallstep (TPLet id v exp) (TPSubst exp v id).
+
+(* TODO Figure out, whether this definition is correct. *)
+Inductive TPMakesSmallstep: nat -> TPExp -> TPExp * nat -> Prop :=
+| smallstep_op: forall idx n1 n2 op,
+  TPMakesSmallstep idx (TPApp (TPApp (TPOp op) (TPInt n1)) (TPInt n2)) (TPEvalOp op (TPInt n1) (TPInt n2), idx)
+| smallstep_betav: forall idx id exp v,
+  TPIsValue v -> TPMakesSmallstep idx (TPApp (TPAbstr id exp) v) (TPSubst idx exp v id)
+| smallstep_appleft: forall idx idx' exp1 exp1' exp2,
+  TPMakesSmallstep idx exp1 (exp1', idx') -> TPMakesSmallstep idx (TPApp exp1 exp2) (TPApp exp1' exp2, idx')
+| smallstep_appright: forall idx idx' exp exp' v,
+  TPIsValue v -> TPMakesSmallstep idx exp (exp', idx') -> TPMakesSmallstep idx' (TPApp v exp) (TPApp v exp', idx')
+| smallstep_condeval: forall idx idx' exp0 exp0' exp1 exp2,
+  TPMakesSmallstep idx exp0 (exp0', idx') -> TPMakesSmallstep idx' (TPIf exp0 exp1 exp2) (TPIf exp0' exp1 exp2, idx')
+| smallstep_condtrue: forall idx exp1 exp2,
+  TPMakesSmallstep idx (TPIf TPTrue exp1 exp2) (exp1, idx)
+| smallstep_condfalse: forall idx exp1 exp2,
+  TPMakesSmallstep idx (TPIf TPFalse exp1 exp2) (exp2, idx)
+| smallstep_leteval: forall idx idx' id exp1 exp1' exp2,
+  TPMakesSmallstep idx exp1 (exp1', idx') -> TPMakesSmallstep idx' (TPLet id exp1 exp2) (TPLet id exp1' exp2, idx')
+| smallstep_letexec: forall idx id exp v,
+  TPIsValue v -> TPMakesSmallstep idx (TPLet id v exp) (TPSubst idx exp v id).
 
 Inductive NonEmptyList (A: Type) :=
 | Singleton: A -> NonEmptyList A
@@ -97,15 +129,15 @@ Fixpoint nth_default {A: Type}(def: A)(n: nat)(l: NonEmptyList A) := match n,l w
 end.
 
 Definition TPMultipleSmallsteps exp exp':= 
-exists steps: NonEmptyList TPExp, 
+exists steps: NonEmptyList TPExp,
 first steps = exp ->
 last steps = exp' ->
-forall n, (n < ((length steps)-1))%nat -> TPMakesSmallstep (nth_default TPExn n steps) (nth_default TPExn (n+1) steps).
+forall idx n, (n < ((length steps)-1))%nat -> TPMakesSmallstep idx (nth_default TPExn n steps) (nth_default TPExn (n+1) steps, idx).
 
-Definition step0 :=  (TPLet "square" (TPAbstr "x" (TPApp (TPApp TPMult (TPId "x")) (TPId "x"))) (TPApp (TPId "square")(TPApp (TPId "square") (TPInt 5)))).
-Definition step1 := (TPApp (TPAbstr "x" (TPApp (TPApp TPMult (TPId "x")) (TPId "x")))(TPApp (TPAbstr "x" (TPApp (TPApp TPMult (TPId "x")) (TPId "x"))) (TPInt 5))).
-Definition step2 := (TPApp (TPAbstr "x" (TPApp (TPApp TPMult (TPId "x")) (TPId "x")))(TPApp (TPApp TPMult (TPInt 5)) (TPInt 5))).
-Definition step3 := (TPApp (TPAbstr "x" (TPApp (TPApp TPMult (TPId "x")) (TPId "x")))(TPInt 25)).
+Definition step0 := (TPLet ("square", 0%nat) (TPAbstr ("x", 1%nat) (TPApp (TPApp TPMult (TPId ("x", 1%nat))) (TPId ("x",1%nat)))) (TPApp (TPId ("square", 0%nat))(TPApp (TPId ("square", 0%nat)) (TPInt 5)))).
+Definition step1 := (TPApp (TPAbstr ("x", 1%nat) (TPApp (TPApp TPMult (TPId ("x", 1%nat))) (TPId ("x", 1%nat))))(TPApp (TPAbstr ("x", 1%nat) (TPApp (TPApp TPMult (TPId ("x", 1%nat))) (TPId ("x", 1%nat)))) (TPInt 5))).
+Definition step2 := (TPApp (TPAbstr ("x", 1%nat) (TPApp (TPApp TPMult (TPId ("x", 1%nat))) (TPId ("x", 1%nat))))(TPApp (TPApp TPMult (TPInt 5)) (TPInt 5))).
+Definition step3 := (TPApp (TPAbstr ("x", 1%nat) (TPApp (TPApp TPMult (TPId ("x", 1%nat))) (TPId ("x", 1%nat))))(TPInt 25)).
 Definition step4 := (TPApp (TPApp TPMult (TPInt 25)) (TPInt 25)).
 Definition step5 := TPInt 625.
 
@@ -137,11 +169,22 @@ Example test1: TPMultipleSmallsteps step0 step5.
 Proof.
   unfold TPMultipleSmallsteps.
   exists (Cons step0 (Cons step1 (Cons step2 (Cons step3 (Cons step4 (Singleton step5)))))).
-  intros Hfirst Hlast n Hn.
-  simpl in Hfirst. simpl in Hlast. simpl in Hn.
+  intros Hfirst Hlast n idx Hn.
+  clear Hfirst. clear Hlast. simpl in Hn.
   
-  repeat ((try (apply lt_n_Sm_le in Hn; apply le_n_0_eq in Hn; symmetry in Hn)) || (try (apply less_nat_cases in Hn; destruct Hn as [Hn | H]))); try rename H into Hn;
-  rewrite Hn; simpl; repeat constructor.
+  repeat ((try (apply lt_n_Sm_le in Hn; apply le_n_0_eq in Hn; symmetry in Hn)) || (try (apply less_nat_cases in Hn; destruct Hn as [Hn | H])));
+  try rename H into Hn; rewrite Hn; simpl; repeat constructor.
+  apply smallstep_appright with (idx := n).
+  now apply TPAbstrIsValue.
+  assert (H : TPSubst n (TPApp (TPApp TPMult (TPId ("x", 1%nat))) (TPId ("x", 1%nat))) (TPInt 5) ("x", 1%nat) = (TPApp (TPApp TPMult (TPInt 5)) (TPInt 5), n)).
+  simpl; unfold TPApp; unfold TPMult; now reflexivity.
+  rewrite <- H.
+  apply smallstep_betav.
+  now apply TPConstIsValue.
+  apply smallstep_appright with (idx := n).
+  now apply TPAbstrIsValue.
+  apply smallstep_op.
 Qed.
 
 End TPSmallSteps.
+

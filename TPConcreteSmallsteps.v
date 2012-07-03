@@ -3,6 +3,9 @@ Module TPConcreteSmallsteps.
 Load TPSmallSteps.
 Export TPSmallSteps.
 
+(* This file is not usable a the moment, as it still assumes that identifiers are just a string instead of a pair (string * nat). *)
+
+(* TODO rewrite the whole file using identifiers in (string*nat) format. *)
 Fixpoint small_step exp :=
   match exp with
     | TPExpApp (TPExpAbstr id e1) e2 =>

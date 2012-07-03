@@ -1,11 +1,10 @@
 Module TPTyping.
 
-Load TPSyntax.
-Import TPSyntax.
 Load TPSmallSteps.
 Import TPSmallSteps.
 
 Require Import List.
+Require Import String.
 
 Inductive TPType :=
 | TPTypeUnit
@@ -56,11 +55,11 @@ Proof.
     apply string_eq_reflex.
 Qed.
 
-Definition TPTypeEnv := list (string * TPType).
+Definition TPTypeEnv := list ((string * nat) * TPType).
 
 Fixpoint change_env id tau env: TPTypeEnv := match env with
 | nil => (id, tau)::nil
-| (id', tau')::env' => if string_eq id id' then (id, tau)::env' else (id', tau')::(change_env id tau env')
+| (id', tau')::env' => if ident_eq id id' then (id, tau)::env' else (id', tau')::(change_env id tau env')
 end.
 
 Lemma change_env_consist: forall env id tau, In (id, tau) (change_env id tau env).
@@ -68,7 +67,7 @@ Proof.
   intros env id tau.
   induction env; simpl.
     left. reflexivity.
-    destruct a as (id', tau'). case_eq (string_eq id id'); intros H; simpl.
+    destruct a as (id', tau'). case_eq (ident_eq id id'); intros H; simpl.
       left. reflexivity.
       right. exact IHenv.
 Qed.
@@ -78,12 +77,10 @@ Proof.
   intros env id tau H.
   induction env.
     left. reflexivity.
-    right. destruct a as (id', tau'). case_eq (string_eq id id'); intros H'.
-      simpl in H. rewrite H' in H. inversion H. exists tau'. apply string_eq_consist in H'. rewrite H'. reflexivity.
-      simpl in H. rewrite H' in H. inversion H. symmetry in H1. apply string_eq_consist in H1. rewrite H1 in H'. contradict H'. discriminate.
+    right. destruct a as (id', tau'). case_eq (ident_eq id id'); intros H'; simpl in H; rewrite H' in H; inversion H;
+      exists tau'. apply ident_eq_consist in H'. rewrite H'. reflexivity.
+      symmetry in H1. apply ident_eq_consist in H1. rewrite H1 in H'. contradict H'. discriminate.
 Qed.
-
-Parameter TPHasType: TPTypeEnv -> TPExp -> TPType -> Prop.
 
 Definition TPTypeOfOp op :=
   match op with
@@ -104,51 +101,61 @@ Definition TPTypeOfConst (c: TPConstant) := match c with
  | TPConstantHang => TPTypeError
 end.
 
-Axiom typerule_const: forall env, forall c, forall tau, 
-                      tau = (TPTypeOfConst c) -> 
-                        TPHasType env (TPConst c) tau.
-Axiom typerule_id: forall env, forall id, forall tau, 
-                   In (id, tau) env -> 
-                     TPHasType env (TPId id) tau.
-Axiom typerule_app: forall env, forall exp1 exp2, forall tau tau', 
-                    (TPHasType env exp1 (TPTypeFun tau tau')) -> 
-                    (TPHasType env exp2 tau) -> 
-                      (TPHasType env (TPApp exp1 exp2) tau').
-Axiom typerule_cond: forall env, forall exp0 exp1 exp2, forall tau,
+Inductive TPHasType: TPTypeEnv -> TPExp -> TPType -> Prop :=
+| typerule_const: forall env c tau,
+                      tau = (TPTypeOfConst c) ->
+                        TPHasType env (TPConst c) tau
+| typerule_id: forall env id tau,
+                   In (id, tau) env ->
+                     TPHasType env (TPId id) tau
+| typerule_app: forall env exp1 exp2 tau tau',
+                    (TPHasType env exp1 (TPTypeFun tau tau')) ->
+                    (TPHasType env exp2 tau) ->
+                      (TPHasType env (TPApp exp1 exp2) tau')
+| typerule_cond: forall env exp0 exp1 exp2 tau,
                      (TPHasType env exp0 TPTypeBool) ->
                      (TPHasType env exp1 tau) ->
                      (TPHasType env exp2 tau) ->
-                       (TPHasType env (TPIf exp0 exp1 exp2) tau).
-Axiom typerule_abstr: forall env env', forall exp, forall id, forall tau tau',
+                       (TPHasType env (TPIf exp0 exp1 exp2) tau)
+| typerule_abstr: forall env env' exp id tau tau',
                       env' = change_env id tau env ->
                       (TPHasType env' exp tau') ->
-                      (TPHasType env (TPAbstr id exp) (TPTypeFun tau tau')).
-Axiom typerule_rec: forall env env', forall exp, forall id, forall tau,
+                      (TPHasType env (TPAbstr id exp) (TPTypeFun tau tau'))
+| typerule_rec: forall env env' exp id tau,
                     env' = change_env id tau env ->
                     (TPHasType env' exp tau) ->
-                    (TPHasType env (TPRec id exp) tau).
-Axiom typerule_let: forall env env', forall exp1 exp2, forall id, forall tau1 tau2,
+                    (TPHasType env (TPRec id exp) tau)
+| typerule_let: forall env env' exp1 exp2 id tau1 tau2,
                     env' = change_env id tau1 env ->
                     (TPHasType env exp1 tau1) ->
                     (TPHasType env' exp2 tau2) ->
                     (TPHasType env (TPLet id exp1 exp2) tau2).
 
+Lemma change_env_inversion: forall env env' id tau, env' = change_env id tau env -> TPHasType env' (TPId id) tau.
+Proof.
+  intros env env' id tau H.
+  induction env.
+    simpl in H. rewrite H. constructor. simpl. left. reflexivity.
+    destruct a as [id' tau']. constructor. rewrite H. simpl.
+    case_eq (ident_eq id id'); intros H'; simpl.
+      left. reflexivity.
+      right. apply change_env_consist.
+Qed.
+
+Definition TPWellTyped env exp := exists tau, TPHasType env exp tau.
+
 Example test1: forall env, TPHasType env (TPApp TPPlus (TPInt 1)) TPTypeIntToInt.
 Proof.
   intros.
-  apply typerule_app with (tau:=TPTypeInt).
-    apply typerule_const. simpl. reflexivity.
-    apply typerule_const. simpl. reflexivity.
+  apply typerule_app with (tau:=TPTypeInt); apply typerule_const; simpl; reflexivity.
 Qed.
 
 Example test2: forall env, TPHasType env (TPApp (TPApp TPPlus (TPInt 1)) (TPInt 1)) TPTypeInt.
 Proof.
   intros.
-  apply typerule_app with (tau:=TPTypeInt).
-  apply typerule_app with (tau:=TPTypeInt).
-    apply typerule_const. simpl. reflexivity.
-    apply typerule_const. simpl. reflexivity.
-    apply typerule_const. simpl. reflexivity.
+  repeat (apply typerule_app with (tau:=TPTypeInt));
+    apply typerule_const; simpl; reflexivity.
 Qed.
 
 End TPTyping.
+

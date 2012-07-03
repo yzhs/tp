@@ -30,12 +30,12 @@ Inductive TPConstant :=
 
 Inductive TPExp :=
  | TPExpConst (c : TPConstant)
- | TPExpId (id : string)
+ | TPExpId (id : string * nat)
  | TPExpApp (a b : TPExp)
- | TPExpAbstr (id : string) (exp : TPExp)
+ | TPExpAbstr (id : string * nat) (exp : TPExp)
  | TPExpIf (exp1 exp2 exp3 : TPExp)
- | TPExpLet (id : string) (exp1 exp2 : TPExp)
- | TPExpRec (id : string) (exp : TPExp).
+ | TPExpLet (id : string * nat) (exp1 exp2 : TPExp)
+ | TPExpRec (id : string * nat) (exp : TPExp).
 
 (* Shorthands *)
 Definition TPOp op := (TPExpConst (TPConstantOp op)).
@@ -297,16 +297,53 @@ Qed.
 
 Definition string_neq s1 s2 := negb (string_eq s1 s2).
 
+Definition ident_eq i1 i2 :=
+  match i1, i2 with
+    | (id1, num1), (id2, num2) => andb (string_eq id1 id2) (beq_nat num1 num2)
+  end.
+
+Lemma ident_eq_reflex: forall id, ident_eq id id = true.
+Proof.
+  induction id.
+  simpl.
+  apply andb_true_intro.
+  split.
+  now apply string_eq_reflex.
+  apply beq_nat_true_iff.
+  reflexivity.
+Qed.
+
+Lemma ident_eq_consist: forall id1 id2, ident_eq id1 id2 = true <-> id1 = id2.
+Proof.
+  induction id1; induction id2; simpl.
+  split; intro H.
+  (* => *)
+    apply andb_prop in H.
+    destruct H as [H1 H2].
+    apply string_eq_consist in H1.
+    symmetry in H2; apply beq_nat_eq in H2.
+    rewrite H1; rewrite H2; now reflexivity.
+  (* <= *)
+    apply andb_true_intro.
+    split; [apply string_eq_consist | apply beq_nat_true_iff]; inversion H; reflexivity.
+Qed.
+
+
 (* Boolean version of expression equality *)
 Fixpoint TPExp_eq exp1 exp2 :=
   match exp1, exp2 with
     | TPExpConst c1, TPExpConst c2 => TPConstant_eq c1 c2
-    | TPExpId id1, TPExpId id2 => string_eq id1 id2
-    | TPExpApp exp11 exp12, TPExpApp exp21 exp22 => andb (TPExp_eq exp11 exp21) (TPExp_eq exp12 exp22)
-    | TPExpAbstr id1 exp1, TPExpAbstr id2 exp2 => andb (string_eq id1 id2) (TPExp_eq exp1 exp2)
-    | TPExpIf e11 e12 e13, TPExpIf e21 e22 e23 => andb (TPExp_eq e11 e21) (andb (TPExp_eq e12 e22) (TPExp_eq e13 e23))
-    | TPExpLet id1 e11 e12, TPExpLet id2 e21 e22 => andb (string_eq id1 id2) (andb (TPExp_eq e11 e21) (TPExp_eq e12 e22))
-    | TPExpRec id1 e1, TPExpRec id2 e2 => andb (string_eq id1 id2) (TPExp_eq e1 e2)
+    | TPExpId (id1, n1), TPExpId (id2, n2) => andb (string_eq id1 id2) (beq_nat n1 n2)
+    | TPExpApp exp11 exp12, TPExpApp exp21 exp22 =>
+      andb (TPExp_eq exp11 exp21) (TPExp_eq exp12 exp22)
+    | TPExpAbstr (id1, n1) exp1, TPExpAbstr (id2, n2) exp2 =>
+      andb (string_eq id1 id2) (andb (beq_nat n1 n2) (TPExp_eq exp1 exp2))
+    | TPExpIf e11 e12 e13, TPExpIf e21 e22 e23 =>
+      andb (TPExp_eq e11 e21) (andb (TPExp_eq e12 e22) (TPExp_eq e13 e23))
+    | TPExpLet (id1, n1) e11 e12, TPExpLet (id2, n2) e21 e22 =>
+      andb (string_eq id1 id2) (andb (beq_nat n1 n2) (andb (TPExp_eq e11 e21) (TPExp_eq e12 e22)))
+    | TPExpRec (id1, n1) e1, TPExpRec (id2, n2) e2 =>
+      andb (string_eq id1 id2) (andb (beq_nat n1 n2) (TPExp_eq e1 e2))
     | _, _ => false
   end.
 
@@ -317,65 +354,76 @@ Proof.
   split; intros H.
     (* => *)
     generalize dependent exp2.
-    induction exp1; destruct exp2; intros H; try discriminate; simpl in H.
+    (* The following creates all possible cases of exp1 and exp2 and immediately
+       solves all cases where the constructors of exp1 and exp2 are different. *)
+    induction exp1; destruct exp2; intros H; try discriminate; simpl in H;
+      try (induction id; now intuition); try induction id; try induction id0.
     (* Case: TPExpConst *)
-    apply TPConstant_eq_consist in H. rewrite H. now reflexivity.
+    apply TPConstant_eq_consist in H; rewrite H; now reflexivity.
     (* Case: TPExpId *)
-    apply string_eq_consist in H. rewrite H. now reflexivity.
+    apply andb_prop in H; destruct H; apply string_eq_consist in H.
+    symmetry in H0; apply beq_nat_eq in H0; rewrite H; rewrite H0; now reflexivity.
     (* Case: TPExpApp *)
-    apply andb_prop in H. destruct H as [H H'].
+    apply andb_prop in H; destruct H as [H H'].
     rewrite IHexp1_1 with (exp2:=exp2_1).
     rewrite IHexp1_2 with (exp2:=exp2_2).
     now reflexivity. now exact H'. now exact H.
     (* Case: TPExpAbstr *)
     apply andb_prop in H. destruct H as [H H'].
-    apply string_eq_consist in H. rewrite H.
+    apply string_eq_consist in H; rewrite H.
     rewrite IHexp1 with (exp2:=exp2).
-    now reflexivity. now exact H'.
+    apply andb_prop in H'.
+    destruct H'; symmetry in H0; apply beq_nat_eq in H0; rewrite H0; now reflexivity.
+    apply andb_prop in H'; destruct H' as [H0 H1]; now exact H1.
     (* Case: TPExpIf *)
-    apply andb_prop in H. destruct H as [H H'].
-    apply andb_prop in H'. destruct H' as [H' H''].
+    apply andb_prop in H; destruct H as [H H'];
+    apply andb_prop in H'; destruct H' as [H' H''].
     rewrite IHexp1_1 with (exp2:=exp2_1).
     rewrite IHexp1_2 with (exp2:=exp2_2).
     rewrite IHexp1_3 with (exp2:=exp2_3).
-    now reflexivity.
-    now exact H''. now exact H'. now exact H.
+    now reflexivity. now exact H''. now exact H'. now exact H.
     (* Case: TPExpLet *)
-    apply andb_prop in H. destruct H as [H H'].
-    apply andb_prop in H'. destruct H' as [H' H''].
-    apply string_eq_consist in H. rewrite H.
+    apply andb_prop in H; destruct H as [H H'];
+    apply andb_prop in H'; destruct H' as [H' H''].
+    apply string_eq_consist in H; rewrite H.
+    apply andb_prop in H''; destruct H''.
     rewrite IHexp1_1 with (exp2:=exp2_1).
     rewrite IHexp1_2 with (exp2:=exp2_2).
-    now reflexivity.
-    now exact H''. now exact H'.
+    symmetry in H'; apply beq_nat_eq in H'; rewrite H'; now reflexivity.
+    now exact H1. now exact H0.
     (* Case: TPExpRec *)
-    apply andb_prop in H. destruct H as [H H'].
-    apply string_eq_consist in H. rewrite H.
-    rewrite IHexp1 with (exp2:=exp2).
-    now reflexivity.
-    now exact H'.
+    apply andb_prop in H; destruct H as [H H'].
+    apply string_eq_consist in H; rewrite H.
+    rewrite IHexp1 with (exp2:=exp2); apply andb_prop in H'; destruct H'.
+    symmetry in H0; apply beq_nat_eq in H0; rewrite H0; now reflexivity.
+    now exact H1.
     (* <= *)
-    rewrite H. clear H. clear exp1.
-    induction exp2; simpl.
+    rewrite H; clear H; clear exp1; induction exp2; simpl; try induction id.
     (* Case TPExpConst *)
     now apply TPConstant_eq_reflex.
     (* Case TPExpId *)
+    apply andb_true_intro; split.
     now apply string_eq_reflex.
+    symmetry; now apply beq_nat_refl.
     (* Case TPExpApp *)
-    rewrite IHexp2_1. rewrite IHexp2_2.
-    simpl. now reflexivity.
+    apply andb_true_intro; split; now assumption.
     (* Case TPExpAbstr *)
-    rewrite string_eq_reflex. rewrite IHexp2.
-    simpl. now reflexivity.
+    apply andb_true_intro; split.
+    now apply string_eq_reflex.
+    apply andb_true_intro; split.
+    symmetry; now apply beq_nat_refl.
+    now exact IHexp2.
     (* Case TPExpIf *)
-    rewrite IHexp2_1. rewrite IHexp2_2. rewrite IHexp2_3.
-    simpl. now reflexivity.
+    rewrite IHexp2_1; rewrite IHexp2_2; simpl; now exact IHexp2_3.
     (* Case TPExpLet *)
-    rewrite string_eq_reflex. rewrite IHexp2_1. rewrite IHexp2_2. 
-    simpl. now reflexivity.
+    rewrite string_eq_reflex; rewrite IHexp2_1; rewrite IHexp2_2; 
+    simpl; apply andb_true_intro; split.
+    symmetry; now apply beq_nat_refl.
+    now reflexivity.
     (* Case TPExpRec *)
-    rewrite string_eq_reflex. rewrite IHexp2.
-    simpl. now reflexivity.
+    rewrite string_eq_reflex; rewrite IHexp2; simpl; apply andb_true_intro; split; symmetry.
+    now apply beq_nat_refl. now reflexivity.
 Qed.
 
 End TPSyntax.
+
