@@ -1,7 +1,7 @@
 Module TPTyping.
 
 Load TPSmallSteps.
-Import TPSmallSteps.
+Export TPSmallSteps.
 
 Require Import List.
 Require Import String.
