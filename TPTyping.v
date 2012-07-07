@@ -50,36 +50,63 @@ Proof.
     rewrite H. clear H. clear t1.
     induction t2; simpl; try reflexivity.
     (* Case: TPTypeFun *)
-    rewrite IHt2_1. rewrite IHt2_2. simpl. now reflexivity.
+    rewrite IHt2_1. rewrite IHt2_2. now tauto.
     (* Case: TPTypeVar *)
     apply string_eq_reflex.
 Qed.
 
+(* A type environment is a function from identifiers (which have type
+ * (string * nat)) to their types.  This function is represented here using a
+ * list of identifier, type pairs. *)
 Definition TPTypeEnv := list ((string * nat) * TPType).
 
-Fixpoint change_env id tau env: TPTypeEnv := match env with
-| nil => (id, tau)::nil
-| (id', tau')::env' => if ident_eq id id' then (id, tau)::env' else (id', tau')::(change_env id tau env')
-end.
+(* This is basically how the environments were extended in lecture. *)
+Definition change_env id tau env: TPTypeEnv := (id, tau) :: env.
+(*
+Fixpoint change_env id tau env: TPTypeEnv :=
+  (* The following is not necessary if we always search for a matching
+   * identifier starting at the beginning of the list. *)
+  match env with
+    | nil => (id, tau)::nil
+    | (id', tau')::env' => if ident_eq id id' then (id, tau)::env' else (id', tau')::(change_env id tau env')
+  end.
+*)
 
-Lemma change_env_consist: forall env id tau, In (id, tau) (change_env id tau env).
+Fixpoint find_first ident lst : option TPType :=
+  match lst with
+    | nil => None
+    | (id, tau) :: ids => if ident_eq ident id then Some tau else find_first ident ids
+  end.
+
+Lemma change_env_consist: forall env id tau, find_first id (change_env id tau env) = Some tau.
 Proof.
   intros env id tau.
+  simpl.
+  rewrite ident_eq_reflex.
+  reflexivity.
+  (*
   induction env; simpl.
     left. reflexivity.
     destruct a as (id', tau'). case_eq (ident_eq id id'); intros H; simpl.
       left. reflexivity.
       right. exact IHenv.
+      *)
 Qed.
 
-Lemma change_env_small: forall env id tau, change_env id tau env = (id, tau) :: nil -> env = nil \/ (exists tau'', env = (id, tau'') :: nil).
+Lemma change_env_small: forall env id tau, change_env id tau env = (id, tau) :: nil -> env = nil (* \/ (exists tau'', env = (id, tau'') :: nil)*).
 Proof.
   intros env id tau H.
+  unfold change_env in H.
+  induction env.
+  reflexivity.
+  inversion H.
+  (*
   induction env.
     left. reflexivity.
     right. destruct a as (id', tau'). case_eq (ident_eq id id'); intros H'; simpl in H; rewrite H' in H; inversion H;
       exists tau'. apply ident_eq_consist in H'. rewrite H'. reflexivity.
       symmetry in H1. apply ident_eq_consist in H1. rewrite H1 in H'. contradict H'. discriminate.
+      *)
 Qed.
 
 Definition TPTypeOfOp op :=
@@ -106,7 +133,7 @@ Inductive TPHasType: TPTypeEnv -> TPExp -> TPType -> Prop :=
                       tau = (TPTypeOfConst c) ->
                         TPHasType env (TPConst c) tau
 | typerule_id: forall env id tau,
-                   In (id, tau) env ->
+                   find_first id env = Some tau ->
                      TPHasType env (TPId id) tau
 | typerule_app: forall env exp1 exp2 tau tau',
                     (TPHasType env exp1 (TPTypeFun tau tau')) ->
@@ -131,18 +158,22 @@ Inductive TPHasType: TPTypeEnv -> TPExp -> TPType -> Prop :=
                     (TPHasType env' exp2 tau2) ->
                     (TPHasType env (TPLet id exp1 exp2) tau2).
 
-Lemma change_env_inversion: forall env env' id tau, env' = change_env id tau env -> TPHasType env' (TPId id) tau.
+Notation "Env |> exp ::: tau" := (TPHasType Env exp tau) (at level 10, no associativity).
+
+Lemma change_env_inversion: forall env env' id tau, env' = change_env id tau env -> env' |> TPId id ::: tau.
 Proof.
   intros env env' id tau H.
-  induction env.
+  induction env; unfold change_env in H; rewrite H; apply typerule_id; simpl; rewrite ident_eq_reflex; reflexivity.
+  (*
     simpl in H. rewrite H. constructor. simpl. left. reflexivity.
     destruct a as [id' tau']. constructor. rewrite H. simpl.
     case_eq (ident_eq id id'); intros H'; simpl.
       left. reflexivity.
       right. apply change_env_consist.
+      *)
 Qed.
 
-Definition TPWellTyped env exp := exists tau, TPHasType env exp tau.
+Definition TPWellTyped env exp := exists tau, env |> exp ::: tau.
 
 Example test1: forall env, TPHasType env (TPApp TPPlus (TPInt 1)) TPTypeIntToInt.
 Proof.
@@ -150,7 +181,7 @@ Proof.
   apply typerule_app with (tau:=TPTypeInt); apply typerule_const; simpl; reflexivity.
 Qed.
 
-Example test2: forall env, TPHasType env (TPApp (TPApp TPPlus (TPInt 1)) (TPInt 1)) TPTypeInt.
+Example test2: forall env, env |> TPApp (TPApp TPPlus (TPInt 1)) (TPInt 1) ::: TPTypeInt.
 Proof.
   intros.
   repeat (apply typerule_app with (tau:=TPTypeInt));
