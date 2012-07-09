@@ -62,15 +62,6 @@ Definition TPTypeEnv := list ((string * nat) * TPType).
 
 (* This is basically how the environments were extended in lecture. *)
 Definition change_env id tau env: TPTypeEnv := (id, tau) :: env.
-(*
-Fixpoint change_env id tau env: TPTypeEnv :=
-  (* The following is not necessary if we always search for a matching
-   * identifier starting at the beginning of the list. *)
-  match env with
-    | nil => (id, tau)::nil
-    | (id', tau')::env' => if ident_eq id id' then (id, tau)::env' else (id', tau')::(change_env id tau env')
-  end.
-*)
 
 Fixpoint find_first ident lst : option TPType :=
   match lst with
@@ -84,29 +75,15 @@ Proof.
   simpl.
   rewrite ident_eq_reflex.
   reflexivity.
-  (*
-  induction env; simpl.
-    left. reflexivity.
-    destruct a as (id', tau'). case_eq (ident_eq id id'); intros H; simpl.
-      left. reflexivity.
-      right. exact IHenv.
-      *)
 Qed.
 
-Lemma change_env_small: forall env id tau, change_env id tau env = (id, tau) :: nil -> env = nil (* \/ (exists tau'', env = (id, tau'') :: nil)*).
+Lemma change_env_small: forall env id tau, change_env id tau env = (id, tau) :: nil -> env = nil.
 Proof.
   intros env id tau H.
   unfold change_env in H.
   induction env.
   reflexivity.
   inversion H.
-  (*
-  induction env.
-    left. reflexivity.
-    right. destruct a as (id', tau'). case_eq (ident_eq id id'); intros H'; simpl in H; rewrite H' in H; inversion H;
-      exists tau'. apply ident_eq_consist in H'. rewrite H'. reflexivity.
-      symmetry in H1. apply ident_eq_consist in H1. rewrite H1 in H'. contradict H'. discriminate.
-      *)
 Qed.
 
 Definition TPTypeOfOp op :=
@@ -164,13 +141,6 @@ Lemma change_env_inversion: forall env env' id tau, env' = change_env id tau env
 Proof.
   intros env env' id tau H.
   induction env; unfold change_env in H; rewrite H; apply typerule_id; simpl; rewrite ident_eq_reflex; reflexivity.
-  (*
-    simpl in H. rewrite H. constructor. simpl. left. reflexivity.
-    destruct a as [id' tau']. constructor. rewrite H. simpl.
-    case_eq (ident_eq id id'); intros H'; simpl.
-      left. reflexivity.
-      right. apply change_env_consist.
-      *)
 Qed.
 
 Definition TPWellTyped env exp := exists tau, env |> exp ::: tau.
@@ -186,6 +156,138 @@ Proof.
   intros.
   repeat (apply typerule_app with (tau:=TPTypeInt));
     apply typerule_const; simpl; reflexivity.
+Qed.
+
+Lemma type_unique: forall exp env tau tau', env |> exp ::: tau /\ env |> exp ::: tau' -> tau = tau'.
+Proof.
+  intros exp.
+  induction exp; intros env tau tau' H; destruct H as [Htau Htau'].
+  (* TPConst *)
+  inversion_clear Htau; inversion_clear Htau'.
+  induction c; simpl in H; simpl in H0; rewrite H; rewrite H0; reflexivity.
+  (* TPId *)
+  inversion_clear Htau; inversion_clear Htau'.
+  rewrite H in H0; inversion_clear H0; reflexivity.
+  (* TPApp *)
+  inversion_clear Htau; inversion_clear Htau'.
+  inversion H; try (
+    assert (IH' := IHexp1 env (TPTypeFun tau0 tau) (TPTypeFun tau1 tau'));
+    assert (Hpremise : env |> exp1 ::: (TPTypeFun tau0 tau) /\ env |> exp1 ::: (TPTypeFun tau1 tau'));
+      [split; assumption | assert (Heq := IH' Hpremise); inversion Heq; reflexivity]
+  ).
+  (* TPAbstr *)
+  induction (TPExpAbstr id exp).
+  inversion_clear Htau; inversion_clear Htau'.
+  unfold change_env in H; unfold change_env in H1.
+  rewrite H in H0; rewrite H1 in H2; clear H; clear H1.
+  apply IHexp with (env := env) (tau := TPTypeFun tau0 tau'0) (tau' := TPTypeFun tau1 tau'1).
+  split.
+  admit.
+  (* TPIf *)
+  apply IHexp2.
+  split; assumption.
+  (* TPLet *)
+  admit.
+  (* TPRec *)
+  apply IHexp.
+  unfold change_env in H; rewrite H in H0; clear H.
+  unfold change_env in H1; rewrite H1 in H2; clear H1.
+  clear env'; clear env'0.
+  admit.
+Qed.
+
+Lemma TPSubst_preserves_types : forall n n' e e' exp id env tau tau',
+  env |> e ::: tau -> env |> e' ::: tau' -> env |> TPId id ::: tau' -> (exp , n') = TPSubst n e e' id -> env |> exp ::: tau.
+Proof.
+  intros n n' e e' exp id env tau tau' He He' Hid Hsubst.
+  generalize dependent n; induction e; intros n Hsubst; simpl in Hsubst.
+  (* TPConst *)
+    inversion_clear Hsubst.
+    now assumption.
+  (* TPId *)
+    case_eq (ident_eq id0 id); intro Heq; rewrite Heq in Hsubst.
+    inversion Hsubst.
+    apply ident_eq_consist in Heq.
+    rewrite Heq in He.
+    assert (Htau : tau = tau').
+    apply type_unique with (exp := TPExpId id) (env := env).
+    split; [ | unfold TPId in Hid]; assumption.
+    rewrite Htau; exact He'.
+    inversion Hsubst; assumption.
+  (* TPApp *)
+    case_eq (TPSubst n e1 e' id); intros; rewrite H in Hsubst.
+    case_eq (TPSubst n0 e2 e' id); intros; rewrite H0 in Hsubst.
+    inversion Hsubst.
+    destruct H3.
+    clear Hsubst.
+    admit.
+  (* TPAbstr *)
+    case_eq (ident_eq id0 id); intro Heq; rewrite Heq in Hsubst.
+    inversion_clear Hsubst.
+    apply ident_eq_consist in Heq.
+    destruct Heq.
+    admit.
+    destruct (TPSubst n e e' id).
+    inversion_clear Hsubst.
+    admit.
+  (* TPIf *)
+  admit.
+  (* TPLet *)
+  admit.
+  (* TPRec *)
+  admit.
+Qed.
+
+Theorem preservation : forall env e e' tau n n', env |> e ::: tau -> TPMakesSmallstep n e (e', n') -> env |> e' ::: tau.
+Proof.
+  intros env e e' tau n n' Hwelltyped Hsmallstep.
+  inversion Hwelltyped.
+  (* case TPConst *)
+  induction c; simpl in H; rewrite <- H1 in Hsmallstep; now inversion Hsmallstep.
+  (* case TPId *)
+  inversion Hsmallstep; rewrite <- H1 in Hsmallstep; now inversion Hsmallstep.
+  (* case TPApp *)
+  inversion Hsmallstep.
+    (* case OP *)
+    rewrite <- H5 in Hsmallstep; induction op; simpl; apply typerule_const;
+    rewrite <- H5 in H2; inversion H2; rewrite H10 in H0; rewrite H9 in H;
+    inversion H0; simpl in H12; inversion H; inversion H17; inversion H22;
+    now reflexivity.
+    (* case BETA-V *)
+    rewrite <- H6 in H2; inversion H2.
+    rewrite H9 in H; rewrite H10 in H0.
+
+    apply TPSubst_preserves_types.
+    admit.
+    (* case APP-LEFT *)
+    admit.
+    (* case APP-RIGHT *)
+    admit.
+    (* case COND-EVAL *)
+    apply typerule_cond.
+      (* condition *)
+      admit.
+      (* then clause *)
+      admit.
+      (* else clause *)
+      admit.
+    (* case COND-TRUE *)
+    admit.
+    (* case COND-FALSE *)
+    admit.
+    (* case LET-EVAL *)
+    admit.
+    (* case LET-EXEC *)
+    admit.
+    *)
+  (* case TPIf *)
+  admit.
+  (* case TPAbstr *)
+  rewrite <- H2 in Hsmallstep; now inversion Hsmallstep.
+  (* case TPRec *)
+  rewrite <- H2 in Hsmallstep; now inversion Hsmallstep.
+  (* case TPLet *)
+  admit.
 Qed.
 
 End TPTyping.
