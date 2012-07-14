@@ -35,20 +35,9 @@ Fixpoint TPFreeVars exp :=
     | TPExpRec id exp => filter (ident_eq id) (TPFreeVars exp)
   end.
 
-(*
-Fixpoint subst free_ids e e' id :=
-  match e with
-    | TPConstant c => c
-    | TPExpId id' => if string_eq id' id then e' else id'
-    | TPExpAbstr id' e => if string_eq id' id then e else
-      let id'' := new_id free_ids id' in TPExpAbstr id'' (subst (id'' :: free_ids) (subst free_ids e' (TPExpId id'') id) e' id)
-    | _ => TPConstant TPunit
-  end.
-*)
-
 Definition new_id highest_id id := (TPId (id, S highest_id), S highest_id).
 
-(* Substitute id in e by e' *)
+(* Substitute id in e by e', using notation from lecture: e[e'/id] *)
 Fixpoint TPSubst (highest_id : nat) e e' id : TPExp * nat :=
   match e with
     | TPExpConst c => (e, highest_id)
@@ -98,7 +87,37 @@ Inductive TPMakesSmallstep: nat -> TPExp -> TPExp * nat -> Prop :=
 | smallstep_leteval: forall idx idx' id exp1 exp1' exp2,
   TPMakesSmallstep idx exp1 (exp1', idx') -> TPMakesSmallstep idx' (TPLet id exp1 exp2) (TPLet id exp1' exp2, idx')
 | smallstep_letexec: forall idx id exp v,
-  TPIsValue v -> TPMakesSmallstep idx (TPLet id v exp) (TPSubst idx exp v id).
+  TPIsValue v -> TPMakesSmallstep idx (TPLet id v exp) (TPSubst idx exp v id)
+| smallstep_unfold: forall idx id exp,
+  TPMakesSmallstep idx (TPRec id exp) (TPSubst idx exp (TPRec id exp) id).
+
+Fixpoint smallstep (n : nat) (exp : TPExp) : TPExp * nat :=
+  match exp with
+    | TPExpApp (TPExpApp (TPExpConst (TPConstantOp op)) (TPExpConst (TPConstantInt n1))) (TPExpConst (TPConstantInt n2)) =>
+      (TPEvalOp op (TPInt n1) (TPInt n2), n)                                  (* OP *)
+    | TPExpApp (TPExpAbstr id e1) e2 =>
+      if TPIsValue_bool e2
+        then TPSubst n e1 e2 id                                               (* BETA-V *)
+        else let (e', n') := smallstep n e2 in (TPApp (TPAbstr id e1) e', n') (* APP-RIGHT *)
+    | TPExpApp e1 e2 =>
+      if TPIsValue_bool e1
+        then let (e', n') := smallstep n e2 in (TPApp e1 e', n')              (* APP-LEFT *)
+        else let (e', n') := smallstep n e1 in (TPApp e' e2, n')              (* APP-RIGHT *)
+    | TPExpIf e1 e2 e3 =>
+      if TPIsValue_bool e1
+        then if TPExp_eq e1 TPTrue
+          then (e2, n)                                                        (* COND-TRUE *)
+          else (e3, n)                                                        (* COND-FALSE *)
+        else let (e', n') := smallstep n e1 in (TPIf e' e2 e3, n')            (* COND-EVAL *)
+    | TPExpLet id e1 e2 =>
+      if TPIsValue_bool e1
+        then TPSubst n e2 e1 id                                               (* LET-EXEC *)
+        else let (e', n') := smallstep n e1 in (TPLet id e' e2, n')           (* LET-EVAL *)
+    | TPExpRec id e => TPSubst n e (TPRec id e) id                            (* UNFOLD *)
+  (* Otherwise, no small step exists and the execution hangs *)
+    | _ => (TPHang, n)
+  end.
+
 
 Inductive NonEmptyList (A: Type) :=
 | Singleton: A -> NonEmptyList A
@@ -185,6 +204,14 @@ Proof.
   now apply TPAbstrIsValue.
   apply smallstep_op.
 Qed.
+
+Lemma smallstep_consist : forall n n' e e', smallstep n e = (e', n') <-> TPMakesSmallstep n e (e', n').
+Proof.
+  intros n n' e e'.
+  induction e.
+  unfold smallstep.
+Admitted.
+
 
 End TPSmallSteps.
 
