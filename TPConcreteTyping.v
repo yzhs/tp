@@ -1,9 +1,9 @@
 Module TPConcreteTyping.
 
+Load TPSmallSteps.
+Import TPSmallSteps.
 Load TPTyping.
 Import TPTyping.
-
-Require Import Recdef.
 
 Inductive TPTypeEquation :=
 | TPTypeEq (t1 t2 : TPType).
@@ -25,6 +25,8 @@ Definition TPTypeEquationComplexity t :=
 
 Definition TPTypeEquationListComplexity eqlist := fold_left plus (map TPTypeEquationComplexity eqlist) 0%nat.
 
+Require Import Recdef.
+
 Function unify (types : list TPTypeEquation) {measure TPTypeEquationListComplexity} : list Subst' :=
   match types with
     | nil => nil
@@ -43,8 +45,8 @@ Admitted.
 Inductive TPTypingJudgement :=
   | TPTypingJudge (env : list (string * TPType)) (exp : TPExp) (type : TPType).
 
-Definition string_nat_pair_eq id1 id2 := andb (string_eq (fst id1) (fst id2)) (beq_nat (snd id1) (snd id2)).
-
+(*
+(* This function does not work because, due to a weird typing issue, op has type TPOperator instead of TPSmallSteps.TPSyntax.TPOperator *)
 Fixpoint typing_rules env exp {struct exp} :=
   match exp with
     | TPExpConst TPConstantUnit => TPTypeUnit
@@ -53,7 +55,7 @@ Fixpoint typing_rules env exp {struct exp} :=
     | TPExpConst (TPConstantOp op) => TPTypeOfOp op
     | TPExpConst TPConstantExn => TPTypeError
     | TPExpConst TPConstantHang => TPTypeError
-    | TPExpId id => match find (fun a => string_nat_pair_eq id (fst a)) env with | Some (a,b) => b | None => TPTypeVar "" end
+    | TPExpId id => match find (fun a => string_eq id (fst a)) env with | Some (a,b) => b | None => TPTypeVar "" end
     | TPExpApp e1 e2 =>
       match typing_rules env e1 with
         | TPTypeFun t1 t2 => if TPType_eq (typing_rules env e2) t1 then t2 else TPTypeError
@@ -64,5 +66,6 @@ Fixpoint typing_rules env exp {struct exp} :=
     | TPExpLet id e1 e2 => typing_rules ((id, typing_rules env e1) :: env) e2
     | TPExpRec id e => typing_rules env e
   end.
+*)
 
 End TPConcreteTyping.
